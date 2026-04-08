@@ -22,6 +22,9 @@ def parse_date(value: str) -> date:
     - US: "06/15/2025", "6/15/2025"
     - EU: "15/06/2025", "15-06-2025"
     - Written: "June 15, 2025", "15 Jun 2025", "Jun 15 2025"
+    
+    NOTE: For ambiguous numerical formats like "05/06/2025", this function
+    defaults to US format (MM/DD/YYYY) unless the first part > 12.
 
     Args:
         value: Date string to parse
@@ -80,22 +83,42 @@ def parse_date(value: str) -> date:
         if month:
             return date(int(year_str), month, int(day_str))
 
-    # Pattern: "06/15/2025" or "6/15/2025" (US format - month first)
+    # Pattern: "06/15/2025" or "6/15/2025" (ambiguous US/EU format)
+    # Strategy: If first part > 12, it must be day (EU). Otherwise assume US (MM/DD/YYYY).
+    # Note: Dates like 12/11/2025 are ambiguous — we default to US (Dec 11).
     match = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", value)
     if match:
         part1, part2, year_str = match.groups()
-        # Assume US format (MM/DD/YYYY) if first part <= 12
-        if int(part1) <= 12:
-            return date(int(year_str), int(part1), int(part2))
+        p1, p2 = int(part1), int(part2)
+        
+        if p1 > 12 and p2 <= 12:
+            # First part > 12 means it must be day (EU: DD/MM/YYYY)
+            return date(int(year_str), p2, p1)
+        elif p1 <= 12 and p2 > 31:
+            raise ValueError(f"Invalid date: '{value}' — day value {p2} out of range")
+        elif p1 <= 12:
+            # Assume US format (MM/DD/YYYY) when ambiguous
+            return date(int(year_str), p1, p2)
         else:
-            # EU format (DD/MM/YYYY)
-            return date(int(year_str), int(part2), int(part1))
+            raise ValueError(f"Invalid date: '{value}' — cannot determine format")
 
-    # Pattern: "15-06-2025" (EU format with dashes)
+    # Pattern: "15-06-2025" or "06-15-2025" (ambiguous with dashes)
+    # Same logic as above
     match = re.match(r"(\d{1,2})-(\d{1,2})-(\d{4})", value)
     if match:
-        day_str, month_str, year_str = match.groups()
-        return date(int(year_str), int(month_str), int(day_str))
+        part1, part2, year_str = match.groups()
+        p1, p2 = int(part1), int(part2)
+        
+        if p1 > 12 and p2 <= 12:
+            # First part > 12 means it must be day (EU: DD-MM-YYYY)
+            return date(int(year_str), p2, p1)
+        elif p1 <= 12 and p2 > 31:
+            raise ValueError(f"Invalid date: '{value}' — day value {p2} out of range")
+        elif p1 <= 12:
+            # Assume US format (MM-DD-YYYY) when ambiguous
+            return date(int(year_str), p1, p2)
+        else:
+            raise ValueError(f"Invalid date: '{value}' — cannot determine format")
 
     raise ValueError(f"Could not parse date: '{value}'")
 
@@ -144,20 +167,43 @@ def generate_date_range(start: str, days: int) -> list[str]:
 
     Args:
         start: Start date (ISO format or parseable string)
-        days: Number of days to generate
+        days: Number of days to generate (must be >= 1)
 
     Returns:
         List of ISO date strings
+
+    Raises:
+        ValueError: If days < 1
 
     Example:
         generate_date_range("2025-06-15", 3)
         # -> ["2025-06-15", "2025-06-16", "2025-06-17"]
     """
+    if days < 1:
+        raise ValueError(f"days must be >= 1, got {days}")
+    
     start_date = parse_date(start)
     return [
         format_date(start_date + timedelta(days=i))
         for i in range(days)
     ]
+
+
+def is_valid_date(value: str) -> bool:
+    """
+    Check if a string is a valid parseable date.
+
+    Args:
+        value: Date string to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    try:
+        parse_date(value)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 # ─── Currency Functions ─────────────────────────────────────────────────
@@ -208,7 +254,7 @@ def parse_budget(text: str) -> Optional[float]:
 
     Handles formats like:
     - "3000", "3,000", "3000.00"
-    - "$3000", "€2500"
+    - "$3000", "€2500", "3000 USD", "CHF 3000"
     - "3k", "3K" (thousands)
     - "1.5k" (1500)
 
@@ -223,19 +269,28 @@ def parse_budget(text: str) -> Optional[float]:
 
     text = text.strip()
 
-    # Remove currency symbols and whitespace
-    text = re.sub(r"[$€£₹¥₩]", "", text)
-    text = text.replace(",", "").replace(" ", "")
+    # Remove all characters except digits, decimal point, and k/m suffixes
+    # This handles currency symbols, alphabetic codes (USD, EUR), and whitespace/commas
+    text = re.sub(r"[^0-9.kmKM]", "", text)
+
+    if not text:
+        return None
 
     # Handle "k" suffix (thousands)
     match = re.match(r"^([\d.]+)[kK]$", text)
     if match:
-        return float(match.group(1)) * 1000
+        try:
+            return float(match.group(1)) * 1000
+        except ValueError:
+            return None
 
-    # Handle "m" suffix (millions) - less common but useful
+    # Handle "m" suffix (millions)
     match = re.match(r"^([\d.]+)[mM]$", text)
     if match:
-        return float(match.group(1)) * 1_000_000
+        try:
+            return float(match.group(1)) * 1_000_000
+        except ValueError:
+            return None
 
     # Try direct float conversion
     try:

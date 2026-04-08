@@ -108,15 +108,24 @@ for input_str, expected in test_cases:
 
 # ── 8. Parse US/EU Date Formats ─────────────────────────────────
 print("\n[8] Parse numeric date formats...")
-# US format (MM/DD/YYYY)
+# US format (MM/DD/YYYY) - ambiguous dates default to US
 d = parse_date("06/15/2025")
 assert d == date(2025, 6, 15), f"US format failed: {d}"
-print(f"  OK: '06/15/2025' -> {d}")
+print(f"  OK: '06/15/2025' -> {d} (US format)")
 
-# EU format with dashes (DD-MM-YYYY)
-d = parse_date("15-06-2025")
-assert d == date(2025, 6, 15), f"EU format failed: {d}"
-print(f"  OK: '15-06-2025' -> {d}")
+# Unambiguous EU format (day > 12)
+d = parse_date("25/06/2025")
+assert d == date(2025, 6, 25), f"EU format failed: {d}"
+print(f"  OK: '25/06/2025' -> {d} (EU format, day > 12)")
+
+# Dashes - same logic
+d = parse_date("06-15-2025")
+assert d == date(2025, 6, 15), f"US dash format failed: {d}"
+print(f"  OK: '06-15-2025' -> {d} (US format with dashes)")
+
+d = parse_date("25-06-2025")
+assert d == date(2025, 6, 25), f"EU dash format failed: {d}"
+print(f"  OK: '25-06-2025' -> {d} (EU format with dashes)")
 
 
 # ── 9. Invalid Date Rejection ───────────────────────────────────
@@ -158,6 +167,24 @@ dates = generate_date_range("2025-06-15", 3)
 expected = ["2025-06-15", "2025-06-16", "2025-06-17"]
 assert dates == expected, f"Got {dates}"
 print(f"  OK: 3 days from 2025-06-15 -> {dates}")
+
+# Test validation for days < 1
+try:
+    generate_date_range("2025-06-15", 0)
+    print("  FAIL: Should have rejected days=0")
+except ValueError:
+    print("  OK: Rejected days=0 — ValueError")
+
+
+# ── 13b. is_valid_date ──────────────────────────────────────────
+print("\n[13b] Test is_valid_date...")
+from backend.utils.helpers import is_valid_date
+
+assert is_valid_date("2025-06-15") is True
+assert is_valid_date("June 15, 2025") is True
+assert is_valid_date("not-a-date") is False
+assert is_valid_date("") is False
+print("  OK: is_valid_date works correctly")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -268,10 +295,12 @@ print("\n[20] Import from backend.utils...")
 from backend.utils import (
     get_logger,
     log_with_context,
+    reset_loggers,
     parse_date,
     format_date,
     calculate_duration,
     generate_date_range,
+    is_valid_date,
     format_currency,
     parse_budget,
     truncate_text,
@@ -279,6 +308,38 @@ from backend.utils import (
     sanitize_for_display,
 )
 print("  OK: All exports accessible from backend.utils")
+
+
+# ── 21. Import from backend.core ────────────────────────────────
+print("\n[21] Import from backend.core...")
+from backend.core import Settings, get_settings, SettingsDep
+print("  OK: Core exports accessible from backend.core")
+
+
+# ── 22. Test secret redaction in logs ───────────────────────────
+print("\n[22] Test secret redaction in log context...")
+from backend.utils.logger import _sanitize_context
+
+test_context = {
+    "user_id": "123",
+    "api_key": "secret_value",
+    "password": "hunter2",
+    "destination": "Paris",
+}
+sanitized = _sanitize_context(test_context)
+assert sanitized["user_id"] == "123", "Non-secret should be preserved"
+assert sanitized["api_key"] == "***REDACTED***", "API key should be redacted"
+assert sanitized["password"] == "***REDACTED***", "Password should be redacted"
+assert sanitized["destination"] == "Paris", "Non-secret should be preserved"
+print("  OK: Secrets properly redacted in log context")
+
+
+# ── 23. Test reset_loggers ──────────────────────────────────────
+print("\n[23] Test reset_loggers...")
+reset_loggers()
+logger_after_reset = get_logger("test.reset")
+assert logger_after_reset is not None
+print("  OK: reset_loggers works correctly")
 
 
 # ══════════════════════════════════════════════════════════════

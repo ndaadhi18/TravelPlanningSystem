@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.schemas.accommodation import HotelOption
 from backend.schemas.transport import FlightOption
@@ -276,16 +276,13 @@ class BudgetSummary(BaseModel):
         description="Whether the total fits within the user's budget.",
     )
 
-    @field_validator("within_budget", mode="before")
-    @classmethod
-    def compute_within_budget(cls, v: bool, info) -> bool:
-        """Auto-compute within_budget if total and budget_limit are available."""
-        data = info.data
-        total = data.get("total", 0)
-        limit = data.get("budget_limit", 0)
-        if total > 0 and limit > 0:
-            return total <= limit
-        return v
+    @model_validator(mode="after")
+    def compute_within_budget(self) -> BudgetSummary:
+        """Auto-compute within_budget based on total and budget_limit."""
+        if self.total > 0 and self.budget_limit > 0:
+            # Use object.__setattr__ to set without triggering validation
+            object.__setattr__(self, "within_budget", self.total <= self.budget_limit)
+        return self
 
 
 # ─── Full Itinerary ──────────────────────────────────────────────────

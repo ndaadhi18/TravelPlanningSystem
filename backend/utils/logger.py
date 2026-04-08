@@ -9,15 +9,21 @@ Provides module-specific loggers with:
 
 import json
 import logging
+import re
 import sys
 from datetime import datetime, timezone
-from typing import Optional
 
 # Cache for created loggers
 _loggers: dict[str, logging.Logger] = {}
 
 # Root logger name for the application
 ROOT_LOGGER_NAME = "planit"
+
+# Pattern to detect potential secrets in log context
+_SECRET_PATTERNS = re.compile(
+    r"(api[_-]?key|secret|password|token|credential|auth)",
+    re.IGNORECASE,
+)
 
 
 class JSONFormatter(logging.Formatter):
@@ -148,6 +154,33 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
+def reset_loggers() -> None:
+    """
+    Reset all cached loggers.
+    
+    Useful for test isolation to ensure clean logger state between tests.
+    """
+    global _loggers
+    
+    # Clear handlers from root logger
+    root = logging.getLogger(ROOT_LOGGER_NAME)
+    root.handlers.clear()
+    
+    # Clear the cache
+    _loggers = {}
+
+
+def _sanitize_context(context: dict) -> dict:
+    """Redact potential secrets from log context."""
+    sanitized = {}
+    for key, value in context.items():
+        if _SECRET_PATTERNS.search(key):
+            sanitized[key] = "***REDACTED***"
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
 def log_with_context(
     logger: logging.Logger,
     level: int,
@@ -159,6 +192,9 @@ def log_with_context(
 
     In production (JSON mode), context appears in the 'extra' field.
     In development, context is appended to the message.
+    
+    Automatically redacts values for keys containing 'secret', 'key', 
+    'password', 'token', or 'credential'.
 
     Args:
         logger: Logger instance
@@ -167,13 +203,16 @@ def log_with_context(
         **context: Additional key-value context
     """
     if context:
+        # Sanitize context to redact potential secrets
+        safe_context = _sanitize_context(context)
+        
         if _is_production():
             # Add as structured data
-            extra = {"extra_data": context}
+            extra = {"extra_data": safe_context}
             logger.log(level, message, extra=extra)
         else:
             # Append to message
-            ctx_str = " | ".join(f"{k}={v}" for k, v in context.items())
+            ctx_str = " | ".join(f"{k}={v}" for k, v in safe_context.items())
             logger.log(level, f"{message} | {ctx_str}")
     else:
         logger.log(level, message)

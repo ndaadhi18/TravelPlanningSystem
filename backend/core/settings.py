@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     )
 
     # ─── LLM ────────────────────────────────────────────────────────────
-    groq_api_key: str = Field(..., description="Groq API key for LLM access")
+    groq_api_key: str = Field(
+        ..., 
+        description="Groq API key for LLM access",
+        json_schema_extra={"repr": False},
+    )
     groq_model_name: str = Field(
         default="llama-3.3-70b-versatile",
         description="Groq model to use for agent reasoning",
@@ -39,17 +43,25 @@ class Settings(BaseSettings):
 
     # ─── Amadeus ────────────────────────────────────────────────────────
     amadeus_client_id: Optional[str] = Field(
-        default=None, description="Amadeus API client ID"
+        default=None, 
+        description="Amadeus API client ID",
+        json_schema_extra={"repr": False},
     )
     amadeus_client_secret: Optional[str] = Field(
-        default=None, description="Amadeus API client secret"
+        default=None, 
+        description="Amadeus API client secret",
+        json_schema_extra={"repr": False},
     )
     amadeus_hostname: Literal["test", "production"] = Field(
         default="test", description="Amadeus environment (test or production)"
     )
 
     # ─── Tavily ─────────────────────────────────────────────────────────
-    tavily_api_key: str = Field(..., description="Tavily API key for web search")
+    tavily_api_key: str = Field(
+        ..., 
+        description="Tavily API key for web search",
+        json_schema_extra={"repr": False},
+    )
 
     # ─── App ────────────────────────────────────────────────────────────
     app_env: Literal["development", "staging", "production"] = Field(

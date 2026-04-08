@@ -54,8 +54,8 @@ class TravelIntent(BaseModel):
 
     # ── Core fields ──────────────────────────────────────────────────
 
-    destination: str = Field(
-        ...,
+    destination: Optional[str] = Field(
+        default=None,
         description="Target destination city/country. e.g., 'Paris, France'",
         min_length=2,
         max_length=200,
@@ -96,9 +96,9 @@ class TravelIntent(BaseModel):
     )
 
     budget: float = Field(
-        ...,
+        default=0.0,
         description="Total trip budget. Interpreted in the specified currency.",
-        gt=0,
+        ge=0,
     )
 
     currency: str = Field(
@@ -164,9 +164,10 @@ class TravelIntent(BaseModel):
             if end <= start:
                 raise ValueError("end_date must be after start_date.")
 
-            # Auto-fill duration_days if both dates are provided
+            # Auto-compute duration_days if both dates are provided and duration not set
             if self.duration_days is None:
-                self.duration_days = (end - start).days
+                # Use object.__setattr__ to avoid validation recursion
+                object.__setattr__(self, "duration_days", (end - start).days)
 
         return self
 

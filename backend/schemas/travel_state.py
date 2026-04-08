@@ -128,7 +128,7 @@ class TravelStateSummary(BaseModel):
 
     iteration_count: int = Field(
         default=0,
-        description="Number of feedback iterations so far (max 5).",
+        description="Number of feedback iterations so far (max 10).",
         ge=0,
         le=10,
     )
