@@ -93,8 +93,27 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def amadeus_configured(self) -> bool:
-        """Check if Amadeus credentials are configured."""
-        return bool(self.amadeus_client_id and self.amadeus_client_secret)
+        """
+        Check if Amadeus credentials are validly configured.
+        
+        Treats None, empty strings, or common placeholders as unconfigured.
+        """
+        placeholders = {"xxxxxxxxxxxxx", "your_id_here", "your_secret_here", ""}
+        
+        id_val = (self.amadeus_client_id or "").strip()
+        secret_val = (self.amadeus_client_secret or "").strip()
+        
+        if not id_val or not secret_val:
+            return False
+            
+        if id_val.lower() in placeholders or secret_val.lower() in placeholders:
+            return False
+            
+        # Also check if they start with 'xxx' which is common for placeholders
+        if id_val.lower().startswith("xxx") or secret_val.lower().startswith("xxx"):
+            return False
+            
+        return True
 
 
 @lru_cache
