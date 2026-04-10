@@ -8,9 +8,9 @@ and local insight discovery tools.
 from fastmcp import FastMCP
 
 from backend.core.settings import get_settings
-from backend.mcp_servers.tools.search_flights import search_flights_tool
+from backend.mcp_servers.tools.search_hotels import search_hotels_tool
+from backend.schemas.accommodation import HotelSearchInput
 from backend.schemas.transport import FlightSearchInput
-from backend.utils.logger import get_logger
 
 # Configure logging
 logger = get_logger("mcp.server")
@@ -35,10 +35,15 @@ async def search_flights(params: FlightSearchInput):
     return await search_flights_tool(params)
 
 
-# Placeholder for future tools (Module M6, M7)
-# @mcp.tool()
-# async def search_hotels(params: HotelSearchInput):
-#     return await search_hotels_tool(params)
+@mcp.tool()
+async def search_hotels(params: HotelSearchInput):
+    """
+    Search for hotel accommodations based on city, dates, and preferences.
+    
+    Args:
+        params: Hotel search parameters including city_code, check_in, and check_out.
+    """
+    return await search_hotels_tool(params)
 
 # @mcp.tool()
 # async def web_search_places(params: WebSearchInput):
