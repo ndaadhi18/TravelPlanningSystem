@@ -57,6 +57,8 @@ class MCPClient:
         self.timeout = timeout
         self._client = http_client
         self._owns_client = http_client is None
+        self._mcp_session_id: Optional[str] = None
+        self._mcp_initialized: bool = False
 
     async def __aenter__(self) -> MCPClient:
         await self._get_client()
@@ -76,14 +78,24 @@ class MCPClient:
             self._client = httpx.AsyncClient(timeout=self.timeout)
         return self._client
 
-    async def _request_json(self, url: str, body: dict[str, Any]) -> Any:
+    async def _request_json(
+        self,
+        url: str,
+        body: dict[str, Any],
+        headers: Optional[Mapping[str, str]] = None,
+        *,
+        return_response: bool = False,
+        allow_empty_response: bool = False,
+    ) -> Any:
         client = await self._get_client()
-        headers = {
+        request_headers = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        if headers:
+            request_headers.update(headers)
         try:
-            response = await client.post(url, json=body, headers=headers)
+            response = await client.post(url, json=body, headers=request_headers)
         except httpx.RequestError as e:
             raise MCPClientError(
                 f"Failed to reach MCP server at {url}: {e}",
@@ -100,22 +112,61 @@ class MCPClient:
                 },
             )
 
+        if allow_empty_response and not response.text.strip():
+            return (None, response) if return_response else None
+
         content_type = response.headers.get("content-type", "").lower()
         if "text/event-stream" in content_type:
             parsed_event_payload = _parse_event_stream_payload(response.text)
             if parsed_event_payload is not None:
-                return parsed_event_payload
+                return (parsed_event_payload, response) if return_response else parsed_event_payload
 
         try:
-            return response.json()
+            parsed_json = response.json()
+            return (parsed_json, response) if return_response else parsed_json
         except ValueError as e:
             parsed_event_payload = _parse_event_stream_payload(response.text)
             if parsed_event_payload is not None:
-                return parsed_event_payload
+                return (parsed_event_payload, response) if return_response else parsed_event_payload
             raise MCPClientError(
                 "MCP server returned non-JSON response.",
                 details={"url": url, "response_text": response.text[:500]},
             ) from e
+
+    async def _initialize_mcp_session(self) -> None:
+        if self._mcp_initialized:
+            return
+
+        init_payload = {
+            "jsonrpc": "2.0",
+            "id": str(uuid.uuid4()),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "planit-httpx-client", "version": "1.0.0"},
+            },
+        }
+
+        init_raw, init_response = await self._request_json(
+            f"{self.base_url}/mcp",
+            init_payload,
+            return_response=True,
+        )
+        self._extract_tool_result(init_raw, "initialize")
+
+        session_id = init_response.headers.get("Mcp-Session-Id")
+        if session_id:
+            self._mcp_session_id = session_id
+
+        notification_headers = {"Mcp-Session-Id": self._mcp_session_id} if self._mcp_session_id else None
+        await self._request_json(
+            f"{self.base_url}/mcp",
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+            headers=notification_headers,
+            allow_empty_response=True,
+        )
+        self._mcp_initialized = True
 
     async def call_tool(self, tool_name: str, payload: Mapping[str, Any]) -> Any:
         """
@@ -125,10 +176,17 @@ class MCPClient:
             raise ValueError("tool_name must be non-empty.")
 
         logger.info(f"Calling MCP tool '{tool_name}'")
+        try:
+            await self._initialize_mcp_session()
+        except MCPClientError as e:
+            logger.warning(f"Failed to initialize MCP session before tool call: {e.message}")
+        except Exception as e:
+            logger.warning(f"Unexpected MCP session initialization failure: {e}")
+
         attempts: list[str] = []
-        for url, body in self._build_request_candidates(tool_name, dict(payload)):
+        for url, body, headers in self._build_request_candidates(tool_name, dict(payload)):
             try:
-                raw = await self._request_json(url, body)
+                raw = await self._request_json(url, body, headers=headers)
                 return self._extract_tool_result(raw, tool_name)
             except MCPClientError as e:
                 if e.details.get("__tool_error__") is True:
@@ -187,8 +245,9 @@ class MCPClient:
 
     def _build_request_candidates(
         self, tool_name: str, payload: dict[str, Any]
-    ) -> list[tuple[str, dict[str, Any]]]:
+    ) -> list[tuple[str, dict[str, Any], Optional[dict[str, str]]]]:
         request_id = str(uuid.uuid4())
+        mcp_headers = {"Mcp-Session-Id": self._mcp_session_id} if self._mcp_session_id else None
         return [
             (
                 f"{self.base_url}/mcp",
@@ -196,20 +255,24 @@ class MCPClient:
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "method": "tools/call",
-                    "params": {"name": tool_name, "arguments": payload},
+                    "params": {"name": tool_name, "arguments": {"params": payload}},
                 },
+                mcp_headers,
             ),
             (
                 f"{self.base_url}/tools/call",
                 {"name": tool_name, "arguments": payload},
+                None,
             ),
             (
                 f"{self.base_url}/tools/{tool_name}",
                 payload,
+                None,
             ),
             (
                 f"{self.base_url}/{tool_name}",
                 payload,
+                None,
             ),
         ]
 
