@@ -56,16 +56,32 @@ def _build_streamable_http_kwargs() -> dict[str, Any]:
     `run()` parameters.
     """
     signature = inspect.signature(mcp.run)
+    params = signature.parameters
     kwargs: dict[str, Any] = {}
 
-    if "transport" not in signature.parameters:
+    supports_var_kwargs = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in params.values()
+    )
+    if "transport" not in params and not supports_var_kwargs:
         raise RuntimeError("Installed FastMCP version does not support transport selection.")
 
+    def _accepts(name: str) -> bool:
+        return name in params or supports_var_kwargs
+
+    # Keep legacy alias for compatibility with existing tests; fall back to
+    # transport="http" at runtime when needed.
     kwargs["transport"] = "streamable-http"
-    if "host" in signature.parameters:
+    if _accepts("host"):
         kwargs["host"] = settings.mcp_server_host
-    if "port" in signature.parameters:
+    elif _accepts("server_host"):
+        kwargs["server_host"] = settings.mcp_server_host
+
+    if _accepts("port"):
         kwargs["port"] = settings.mcp_server_port
+    elif _accepts("server_port"):
+        kwargs["server_port"] = settings.mcp_server_port
+
     return kwargs
 
 
@@ -75,9 +91,9 @@ def run_server(transport: str | None = None) -> None:
 
     Args:
         transport: Optional explicit transport. If not provided, uses
-            `MCP_TRANSPORT` env var and defaults to `stdio`.
+            `MCP_TRANSPORT` env var and defaults to `streamable-http`.
     """
-    selected = (transport or os.getenv("MCP_TRANSPORT", "stdio")).strip().lower()
+    selected = (transport or os.getenv("MCP_TRANSPORT", "streamable-http")).strip().lower()
     logger.info(f"Starting PLANIT MCP Server in {settings.app_env} mode, transport={selected}")
 
     if selected in {"stdio", ""}:
@@ -85,7 +101,13 @@ def run_server(transport: str | None = None) -> None:
         return
 
     if selected in {"streamable-http", "streamable_http", "http"}:
-        mcp.run(**_build_streamable_http_kwargs())
+        kwargs = _build_streamable_http_kwargs()
+        try:
+            mcp.run(**kwargs)
+        except (TypeError, ValueError):
+            # Newer FastMCP uses transport="http" for streamable HTTP mode.
+            kwargs["transport"] = "http"
+            mcp.run(**kwargs)
         return
 
     raise ValueError(
