@@ -41,6 +41,18 @@ async def planning_node(state: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _transport_graph_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    return await _sanitize_parallel_updates(await transport_node(state))
+
+
+async def _accommodation_graph_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    return await _sanitize_parallel_updates(await accommodation_node(state))
+
+
+async def _local_expert_graph_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    return await _sanitize_parallel_updates(await local_expert_node(state))
+
+
 def feedback_node(state: Mapping[str, Any]) -> dict[str, Any]:
     """
     Human-in-the-loop node that pauses graph execution for user feedback.
@@ -82,9 +94,9 @@ def build_state_graph() -> StateGraph:
 
     graph.add_node("greeting", greeting_node)
     graph.add_node("planning", planning_node)
-    graph.add_node("transport", transport_node)
-    graph.add_node("accommodation", accommodation_node)
-    graph.add_node("local_expert", local_expert_node)
+    graph.add_node("transport", _transport_graph_node)
+    graph.add_node("accommodation", _accommodation_graph_node)
+    graph.add_node("local_expert", _local_expert_graph_node)
     graph.add_node("constraint", constraint_node)
     graph.add_node("feedback", feedback_node)
     graph.add_node("payment", payment_node)
@@ -116,6 +128,15 @@ def _to_int(value: Any, *, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+async def _sanitize_parallel_updates(updates: Mapping[str, Any] | dict[str, Any]) -> dict[str, Any]:
+    """
+    Avoid parallel write conflicts on singleton state keys.
+    """
+    normalized = dict(updates)
+    normalized.pop("current_phase", None)
+    return normalized
 
 
 __all__ = [

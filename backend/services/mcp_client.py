@@ -78,8 +78,12 @@ class MCPClient:
 
     async def _request_json(self, url: str, body: dict[str, Any]) -> Any:
         client = await self._get_client()
+        headers = {
+            "accept": "application/json, text/event-stream",
+            "content-type": "application/json",
+        }
         try:
-            response = await client.post(url, json=body)
+            response = await client.post(url, json=body, headers=headers)
         except httpx.RequestError as e:
             raise MCPClientError(
                 f"Failed to reach MCP server at {url}: {e}",
@@ -96,9 +100,18 @@ class MCPClient:
                 },
             )
 
+        content_type = response.headers.get("content-type", "").lower()
+        if "text/event-stream" in content_type:
+            parsed_event_payload = _parse_event_stream_payload(response.text)
+            if parsed_event_payload is not None:
+                return parsed_event_payload
+
         try:
             return response.json()
         except ValueError as e:
+            parsed_event_payload = _parse_event_stream_payload(response.text)
+            if parsed_event_payload is not None:
+                return parsed_event_payload
             raise MCPClientError(
                 "MCP server returned non-JSON response.",
                 details={"url": url, "response_text": response.text[:500]},
@@ -241,6 +254,36 @@ def _parse_content_items(content_items: list[Any]) -> Any:
             except json.JSONDecodeError:
                 return text
     return content_items
+
+
+def _parse_event_stream_payload(text: str) -> Optional[Any]:
+    """
+    Parse JSON payload from a text/event-stream body.
+    """
+    data_chunks: list[str] = []
+    current_chunk: list[str] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\r")
+        if line.startswith("data:"):
+            current_chunk.append(line[5:].lstrip())
+            continue
+        if line.strip() == "" and current_chunk:
+            data_chunks.append("\n".join(current_chunk))
+            current_chunk = []
+
+    if current_chunk:
+        data_chunks.append("\n".join(current_chunk))
+
+    for chunk in reversed(data_chunks):
+        if not chunk or chunk == "[DONE]":
+            continue
+        try:
+            return json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+
+    return None
 
 
 def _parse_model_list(raw: Any, model_cls: type[TModel], tool_name: str) -> list[TModel]:
