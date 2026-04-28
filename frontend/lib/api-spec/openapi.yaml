@@ -1,0 +1,142 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: travel
+    description: Travel planning operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /plan:
+    post:
+      operationId: createTravelPlan
+      tags: [travel]
+      summary: Create a travel plan
+      description: Runs the multi-agent travel planner and returns a concise structured itinerary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TravelPlanInput"
+      responses:
+        "200":
+          description: Structured travel plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TravelPlanOutput"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    TravelPlanInput:
+      type: object
+      properties:
+        origin:
+          type: string
+        destination:
+          type: string
+        days:
+          type: string
+        budget:
+          type: string
+        style:
+          type: string
+        preferences:
+          type: string
+      required:
+        - origin
+        - destination
+        - days
+        - budget
+        - style
+        - preferences
+    TravelSummary:
+      type: object
+      properties:
+        route:
+          type: string
+        days:
+          type: string
+        budget:
+          type: string
+        style:
+          type: string
+      required:
+        - route
+        - days
+        - budget
+        - style
+    DayPlan:
+      type: object
+      properties:
+        day:
+          type: string
+        title:
+          type: string
+        activities:
+          type: array
+          items:
+            type: string
+      required:
+        - day
+        - title
+        - activities
+    BudgetBreakdown:
+      type: object
+      properties:
+        transport:
+          type: string
+        stay:
+          type: string
+        food:
+          type: string
+      required:
+        - transport
+        - stay
+        - food
+    TravelPlanOutput:
+      type: object
+      properties:
+        summary:
+          $ref: "#/components/schemas/TravelSummary"
+        highlights:
+          type: array
+          items:
+            type: string
+        plan:
+          type: array
+          items:
+            $ref: "#/components/schemas/DayPlan"
+        budget:
+          $ref: "#/components/schemas/BudgetBreakdown"
+      required:
+        - summary
+        - highlights
+        - plan
+        - budget
