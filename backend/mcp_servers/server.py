@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import inspect
 import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
 from typing import Any
 
 from fastmcp import FastMCP
@@ -25,9 +29,7 @@ logger = get_logger("mcp.server")
 settings = get_settings()
 
 # Single MCP server process as defined in IMPLEMENTATION.md
-mcp = FastMCP(
-    "planit_mcp"
-)
+mcp = FastMCP("planit_mcp")
 
 
 @mcp.tool()
@@ -60,11 +62,12 @@ def _build_streamable_http_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
 
     supports_var_kwargs = any(
-        parameter.kind is inspect.Parameter.VAR_KEYWORD
-        for parameter in params.values()
+        parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in params.values()
     )
     if "transport" not in params and not supports_var_kwargs:
-        raise RuntimeError("Installed FastMCP version does not support transport selection.")
+        raise RuntimeError(
+            "Installed FastMCP version does not support transport selection."
+        )
 
     def _accepts(name: str) -> bool:
         return name in params or supports_var_kwargs
@@ -93,8 +96,12 @@ def run_server(transport: str | None = None) -> None:
         transport: Optional explicit transport. If not provided, uses
             `MCP_TRANSPORT` env var and defaults to `streamable-http`.
     """
-    selected = (transport or os.getenv("MCP_TRANSPORT", "streamable-http")).strip().lower()
-    logger.info(f"Starting PLANIT MCP Server in {settings.app_env} mode, transport={selected}")
+    selected = (
+        (transport or os.getenv("MCP_TRANSPORT", "streamable-http")).strip().lower()
+    )
+    logger.info(
+        f"Starting PLANIT MCP Server in {settings.app_env} mode, transport={selected}"
+    )
 
     if selected in {"stdio", ""}:
         mcp.run()

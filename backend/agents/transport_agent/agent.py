@@ -21,7 +21,9 @@ from backend.utils.logger import get_logger
 
 logger = get_logger("agents.transport")
 
-_CITY_TO_IATA = {
+# Fast-path hardcoded dict for common cities.
+# AeroDataBox airport search is used as fallback for anything not listed here.
+_CITY_TO_IATA: dict[str, str] = {
     "mumbai": "BOM",
     "bombay": "BOM",
     "delhi": "DEL",
@@ -29,6 +31,7 @@ _CITY_TO_IATA = {
     "paris": "CDG",
     "london": "LHR",
     "new york": "JFK",
+    "new york city": "JFK",
     "san francisco": "SFO",
     "tokyo": "HND",
     "bangalore": "BLR",
@@ -37,6 +40,38 @@ _CITY_TO_IATA = {
     "chennai": "MAA",
     "singapore": "SIN",
     "dubai": "DXB",
+    "bangkok": "BKK",
+    "amsterdam": "AMS",
+    "frankfurt": "FRA",
+    "sydney": "SYD",
+    "toronto": "YYZ",
+    "los angeles": "LAX",
+    "chicago": "ORD",
+    "miami": "MIA",
+    "seattle": "SEA",
+    "boston": "BOS",
+    "rome": "FCO",
+    "milan": "MXP",
+    "madrid": "MAD",
+    "barcelona": "BCN",
+    "istanbul": "IST",
+    "beijing": "PEK",
+    "shanghai": "PVG",
+    "hong kong": "HKG",
+    "kuala lumpur": "KUL",
+    "jakarta": "CGK",
+    "cairo": "CAI",
+    "johannesburg": "JNB",
+    "nairobi": "NBO",
+    "mexico city": "MEX",
+    "sao paulo": "GRU",
+    "buenos aires": "EZE",
+    "kolkata": "CCU",
+    "pune": "PNQ",
+    "ahmedabad": "AMD",
+    "goa": "GOI",
+    "kochi": "COK",
+    "jaipur": "JAI",
 }
 
 
@@ -55,21 +90,19 @@ class TransportAgent(BaseAgent):
     async def run(self, state: Mapping[str, Any]) -> dict[str, Any]:
         intent = _normalize_intent(state.get("travel_intent"))
         if intent is None:
-            clarification = build_transport_clarification(
-                ["departure city", "destination", "departure date"]
-            )
             return {
                 "flight_options": [],
-                "messages": [clarification],
+                "messages": [build_transport_clarification(
+                    ["departure city", "destination", "departure date"]
+                )],
                 "current_phase": "planning",
             }
 
         missing_fields = _missing_transport_fields(intent)
         if missing_fields:
-            clarification = build_transport_clarification(missing_fields)
             return {
                 "flight_options": [],
-                "messages": [clarification],
+                "messages": [build_transport_clarification(missing_fields)],
                 "current_phase": "planning",
             }
 
@@ -77,15 +110,13 @@ class TransportAgent(BaseAgent):
         owns_mcp_client = self._mcp_client is None
 
         try:
-            search_input = self._build_search_input(intent, state)
+            search_input = await self._build_search_input(intent, state)
             logger.info(
                 f"TransportAgent searching flights {search_input.origin} -> "
                 f"{search_input.destination} on {search_input.departure_date}"
             )
             flights = await mcp_client.search_flights(search_input)
-            return {
-                "flight_options": flights,
-            }
+            return {"flight_options": flights}
 
         except Exception as error:
             wrapped = wrap_agent_error(
@@ -107,17 +138,17 @@ class TransportAgent(BaseAgent):
             if owns_mcp_client:
                 await mcp_client.close()
 
-    def _build_search_input(
+    async def _build_search_input(
         self,
         intent: TravelIntent,
         state: Mapping[str, Any],
     ) -> FlightSearchInput:
+        """Build FlightSearchInput, resolving city names to IATA codes."""
         if self._llm is not None:
             user_input = ""
             messages_from_state = state.get("messages")
             if isinstance(messages_from_state, list) and messages_from_state:
-                last_message = messages_from_state[-1]
-                user_input = str(last_message)
+                user_input = str(messages_from_state[-1])
 
             messages = self.build_messages(
                 TRANSPORT_SYSTEM_PROMPT,
@@ -131,7 +162,7 @@ class TransportAgent(BaseAgent):
                     "LLM transport-parameter mapping failed; using deterministic fallback."
                 )
 
-        return _build_flight_search_input(intent)
+        return await _build_flight_search_input(intent)
 
 
 async def transport_node(
@@ -144,6 +175,8 @@ async def transport_node(
     agent = TransportAgent(llm=llm, mcp_client=mcp_client)
     return await agent.run(state)
 
+
+# ── Intent helpers ───────────────────────────────────────────────────────
 
 def _normalize_intent(raw_intent: Any) -> Optional[TravelIntent]:
     if raw_intent is None:
@@ -169,10 +202,70 @@ def _missing_transport_fields(intent: TravelIntent) -> list[str]:
     return missing
 
 
-def _build_flight_search_input(intent: TravelIntent) -> FlightSearchInput:
-    origin = _resolve_iata_code(intent.source_location or "")
-    destination = _resolve_iata_code(intent.destination or "")
+# ── IATA resolution ──────────────────────────────────────────────────────
 
+def _resolve_iata_sync(value: str) -> str | None:
+    """
+    Fast synchronous resolution: already-valid IATA code or hardcoded dict.
+
+    Returns the 3-letter IATA code, or None if not found (triggers API fallback).
+    """
+    cleaned = value.strip()
+
+    # Already looks like an IATA code
+    if len(cleaned) == 3 and cleaned.isalpha():
+        return cleaned.upper()
+
+    # Hardcoded city → IATA map
+    lowered = cleaned.lower()
+    for city, code in _CITY_TO_IATA.items():
+        if city in lowered:
+            return code
+
+    return None
+
+
+async def _resolve_iata_async(value: str) -> str:
+    """
+    Resolve a city/airport name to an IATA code.
+
+    Resolution order:
+    1. Fast sync: already a valid 3-letter code, or in _CITY_TO_IATA dict.
+    2. AeroDataBox /airports/search/term API (when key is configured).
+    3. Last resort: take the first 3 alphabetic characters of the input.
+    """
+    fast = _resolve_iata_sync(value)
+    if fast is not None:
+        return fast
+
+    # Try AeroDataBox airport search
+    try:
+        from backend.mcp_servers.utils.aerodatabox_client import get_aerodatabox_client
+        client = get_aerodatabox_client()
+        airports = await client.search_airports(value, limit=1, with_flight_info_only=True)
+        if airports:
+            iata = (airports[0].get("iata") or "").strip().upper()
+            if len(iata) == 3:
+                logger.info(f"AeroDataBox resolved '{value}' → {iata}")
+                return iata
+    except Exception as e:
+        logger.warning(f"AeroDataBox airport resolution failed for '{value}': {e}")
+
+    # Last resort: derive from the text itself
+    letters = "".join(ch for ch in value.upper() if ch.isalpha())
+    fallback = letters[:3] if len(letters) >= 3 else "UNK"
+    logger.warning(f"IATA resolution failed for '{value}', using fallback '{fallback}'")
+    return fallback
+
+
+# ── Search input builder ─────────────────────────────────────────────────
+
+async def _build_flight_search_input(intent: TravelIntent) -> FlightSearchInput:
+    """Build a FlightSearchInput from a TravelIntent using async IATA resolution."""
+    origin, destination = await _resolve_both_iata(
+        intent.source_location or "",
+        intent.destination or "",
+    )
     return FlightSearchInput(
         origin=origin,
         destination=destination,
@@ -184,20 +277,13 @@ def _build_flight_search_input(intent: TravelIntent) -> FlightSearchInput:
     )
 
 
-def _resolve_iata_code(value: str) -> str:
-    cleaned = value.strip()
-    if len(cleaned) == 3 and cleaned.isalpha():
-        return cleaned.upper()
-
-    lowered = cleaned.lower()
-    for city, code in _CITY_TO_IATA.items():
-        if city in lowered:
-            return code
-
-    letters = "".join(ch for ch in cleaned.upper() if ch.isalpha())
-    if len(letters) >= 3:
-        return letters[:3]
-    return "UNK"
+async def _resolve_both_iata(origin: str, destination: str) -> tuple[str, str]:
+    """Resolve origin and destination concurrently."""
+    import asyncio
+    return await asyncio.gather(
+        _resolve_iata_async(origin),
+        _resolve_iata_async(destination),
+    )
 
 
 def _normalize_return_date(

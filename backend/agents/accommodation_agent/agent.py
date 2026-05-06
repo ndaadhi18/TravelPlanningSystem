@@ -21,28 +21,6 @@ from backend.utils.logger import get_logger
 
 logger = get_logger("agents.accommodation")
 
-_CITY_TO_CODE = {
-    "paris": "PAR",
-    "london": "LON",
-    "new york": "NYC",
-    "mumbai": "BOM",
-    "bombay": "BOM",
-    "delhi": "DEL",
-    "new delhi": "DEL",
-    "tokyo": "TYO",
-    "singapore": "SIN",
-    "dubai": "DXB",
-    "rome": "ROM",
-    "barcelona": "BCN",
-    "amsterdam": "AMS",
-    "berlin": "BER",
-    "bangalore": "BLR",
-    "bengaluru": "BLR",
-    "hyderabad": "HYD",
-    "chennai": "MAA",
-    "san francisco": "SFO",
-}
-
 
 class AccommodationAgent(BaseAgent):
     """Construct hotel search params from intent and fetch hotel options."""
@@ -59,21 +37,19 @@ class AccommodationAgent(BaseAgent):
     async def run(self, state: Mapping[str, Any]) -> dict[str, Any]:
         intent = _normalize_intent(state.get("travel_intent"))
         if intent is None:
-            clarification = build_accommodation_clarification(
-                ["destination", "check-in date", "trip end date or duration"]
-            )
             return {
                 "hotel_options": [],
-                "messages": [clarification],
+                "messages": [build_accommodation_clarification(
+                    ["destination", "check-in date", "trip end date or duration"]
+                )],
                 "current_phase": "planning",
             }
 
         missing_fields = _missing_accommodation_fields(intent)
         if missing_fields:
-            clarification = build_accommodation_clarification(missing_fields)
             return {
                 "hotel_options": [],
-                "messages": [clarification],
+                "messages": [build_accommodation_clarification(missing_fields)],
                 "current_phase": "planning",
             }
 
@@ -81,15 +57,14 @@ class AccommodationAgent(BaseAgent):
         owns_mcp_client = self._mcp_client is None
 
         try:
-            search_input = self._build_search_input(intent, state)
+            search_input = await self._build_search_input(intent, state)
             logger.info(
-                f"AccommodationAgent searching hotels in {search_input.city_code} "
+                f"AccommodationAgent searching hotels in '{search_input.city_code}' "
                 f"from {search_input.check_in} to {search_input.check_out}"
             )
             hotels = await mcp_client.search_hotels(search_input)
-            return {
-                "hotel_options": hotels,
-            }
+            return {"hotel_options": hotels}
+
         except Exception as error:
             wrapped = wrap_agent_error(
                 "accommodation_agent",
@@ -110,11 +85,12 @@ class AccommodationAgent(BaseAgent):
             if owns_mcp_client:
                 await mcp_client.close()
 
-    def _build_search_input(
+    async def _build_search_input(
         self,
         intent: TravelIntent,
         state: Mapping[str, Any],
     ) -> HotelSearchInput:
+        """Build HotelSearchInput. Tries LLM first, falls back to deterministic."""
         if self._llm is not None:
             user_input = ""
             messages_from_state = state.get("messages")
@@ -147,6 +123,8 @@ async def accommodation_node(
     return await agent.run(state)
 
 
+# ── Intent helpers ───────────────────────────────────────────────────────
+
 def _normalize_intent(raw_intent: Any) -> Optional[TravelIntent]:
     if raw_intent is None:
         return None
@@ -171,15 +149,30 @@ def _missing_accommodation_fields(intent: TravelIntent) -> list[str]:
     return missing
 
 
+# ── Search input builder ─────────────────────────────────────────────────
+
 def _build_hotel_search_input(intent: TravelIntent) -> HotelSearchInput:
+    """
+    Build HotelSearchInput from TravelIntent.
+
+    city_code is passed as the destination name (e.g. "Paris") rather than
+    a 3-letter IATA-style code, because Booking.com resolves by city name.
+    The MCP tool / BookingComClient handles dest_id resolution internally.
+    """
     check_in = intent.start_date or ""
     check_out = _resolve_check_out(intent.start_date, intent.end_date, intent.duration_days)
-    if check_out is None:
+    if check_out is None and check_in:
         check_out = (date.fromisoformat(check_in) + timedelta(days=1)).isoformat()
+    check_out = check_out or ""
 
     nights = _trip_nights(check_in, check_out)
+
+    # Use the first part of the destination (before comma) as the city name
+    destination = intent.destination or ""
+    city_name = destination.split(",")[0].strip() or destination
+
     return HotelSearchInput(
-        city_code=_resolve_city_code(intent.destination or ""),
+        city_code=city_name,
         check_in=check_in,
         check_out=check_out,
         adults=max(1, int(intent.num_travelers)),
@@ -225,30 +218,12 @@ def _resolve_price_range(intent: TravelIntent, nights: int) -> Optional[PriceRan
     if intent.budget <= 0:
         return None
 
-    # Uses the same USD tier heuristic defined in M6.
-    nightly_per_traveler = intent.budget / max(1, nights * max(intent.num_travelers, 1))
-    if nightly_per_traveler < 100:
+    nightly = intent.budget / max(1, nights * max(intent.num_travelers, 1))
+    if nightly < 100:
         return PriceRange.BUDGET
-    if nightly_per_traveler <= 300:
+    if nightly <= 300:
         return PriceRange.MID
     return PriceRange.LUXURY
-
-
-def _resolve_city_code(destination: str) -> str:
-    cleaned = destination.strip()
-    if len(cleaned) == 3 and cleaned.isalpha():
-        return cleaned.upper()
-
-    lowered = cleaned.lower()
-    for city, code in _CITY_TO_CODE.items():
-        if city in lowered:
-            return code
-
-    first_token = cleaned.split(",")[0].strip()
-    letters = "".join(ch for ch in first_token.upper() if ch.isalpha())
-    if len(letters) >= 3:
-        return letters[:3]
-    return "UNK"
 
 
 __all__ = [

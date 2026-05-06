@@ -27,33 +27,32 @@ class Settings(BaseSettings):
     )
 
     # ─── LLM ────────────────────────────────────────────────────────────
-    groq_api_key: str = Field(
-        ..., 
-        description="Groq API key for LLM access",
+    openai_api_key: str = Field(
+        ...,
+        description="OpenAI API key for LLM access",
         json_schema_extra={"repr": False},
     )
-    groq_model_name: str = Field(
-        default="llama-3.3-70b-versatile",
-        description="Groq model to use for agent reasoning",
+    openai_model_name: str = Field(
+        default="gpt-4o-mini",
+        description="OpenAI model to use for agent reasoning",
     )
 
     # ─── MCP Server ─────────────────────────────────────────────────────
     mcp_server_host: str = Field(default="localhost", description="MCP server hostname")
     mcp_server_port: int = Field(default=8001, description="MCP server port")
 
-    # ─── Amadeus ────────────────────────────────────────────────────────
-    amadeus_client_id: Optional[str] = Field(
-        default=None, 
-        description="Amadeus API client ID",
+    # ─── AeroDataBox (Flight Search) ────────────────────────────────────
+    aerodatabox_api_key: Optional[str] = Field(
+        default=None,
+        description="AeroDataBox API key via API.market for flight schedules",
         json_schema_extra={"repr": False},
     )
-    amadeus_client_secret: Optional[str] = Field(
-        default=None, 
-        description="Amadeus API client secret",
+
+    # ─── Booking.com via RapidAPI (Hotel Search) ─────────────────────────
+    rapidapi_key: Optional[str] = Field(
+        default=None,
+        description="RapidAPI key for Booking.com hotel search",
         json_schema_extra={"repr": False},
-    )
-    amadeus_hostname: Literal["test", "production"] = Field(
-        default="test", description="Amadeus environment (test or production)"
     )
 
     # ─── Tavily ─────────────────────────────────────────────────────────
@@ -92,28 +91,17 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def amadeus_configured(self) -> bool:
-        """
-        Check if Amadeus credentials are validly configured.
-        
-        Treats None, empty strings, or common placeholders as unconfigured.
-        """
-        placeholders = {"xxxxxxxxxxxxx", "your_id_here", "your_secret_here", ""}
-        
-        id_val = (self.amadeus_client_id or "").strip()
-        secret_val = (self.amadeus_client_secret or "").strip()
-        
-        if not id_val or not secret_val:
-            return False
-            
-        if id_val.lower() in placeholders or secret_val.lower() in placeholders:
-            return False
-            
-        # Also check if they start with 'xxx' which is common for placeholders
-        if id_val.lower().startswith("xxx") or secret_val.lower().startswith("xxx"):
-            return False
-            
-        return True
+    def aerodatabox_configured(self) -> bool:
+        """Check if AeroDataBox credentials are configured."""
+        key = (self.aerodatabox_api_key or "").strip()
+        return bool(key) and not key.lower().startswith("xxx")
+
+    @computed_field
+    @property
+    def booking_com_configured(self) -> bool:
+        """Check if RapidAPI / Booking.com credentials are configured."""
+        key = (self.rapidapi_key or "").strip()
+        return bool(key) and not key.lower().startswith("xxx")
 
 
 @lru_cache

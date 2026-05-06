@@ -120,7 +120,7 @@ class FlightOption(BaseModel):
 
     model_config = ConfigDict(
         str_strip_whitespace=True,
-        extra="allow",  # Amadeus may return extra fields we want to preserve
+        extra="allow",  # providers may return extra fields we want to preserve
     )
 
     airline: str = Field(

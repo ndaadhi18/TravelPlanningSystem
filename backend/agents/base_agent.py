@@ -65,7 +65,7 @@ def get_llm(
     llm_override: Optional[Any] = None,
 ) -> Any:
     """
-    Instantiate ChatGroq (or an injected LLM factory for tests).
+    Instantiate ChatOpenAI (or an injected LLM factory for tests).
 
     Args:
         model_name: Optional explicit model override.
@@ -77,16 +77,16 @@ def get_llm(
         return llm_override
 
     settings = get_settings()
-    selected_model = model_name or settings.groq_model_name
+    selected_model = model_name or settings.openai_model_name
 
     factory = llm_factory
     if factory is None:
-        from langchain_groq import ChatGroq
+        from langchain_openai import ChatOpenAI
 
-        factory = ChatGroq
+        factory = ChatOpenAI
 
     kwargs: dict[str, Any] = {
-        "api_key": settings.groq_api_key,
+        "api_key": settings.openai_api_key,
         "temperature": temperature,
     }
 

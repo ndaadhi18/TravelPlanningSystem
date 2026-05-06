@@ -24,6 +24,15 @@ class GreetingAgent(BaseAgent):
         super().__init__("greeting_agent", llm=llm)
 
     async def run(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        # If intent is already confirmed, this node should be a pass-through.
+        # This prevents infinite loops when intent is injected (e.g. from a form).
+        if state.get("intent_confirmed"):
+            logger.info("GreetingAgent: Intent already confirmed, passing through.")
+            return {
+                "intent_confirmed": True,
+                "current_phase": "planning",
+            }
+
         user_text = _extract_latest_user_text(state)
         if not user_text:
             raise ValueError("No user message found in state for greeting agent.")

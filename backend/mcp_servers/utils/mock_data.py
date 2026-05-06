@@ -1,0 +1,142 @@
+"""
+Mock data for MCP tools during development.
+
+Used when real API credentials are not configured or while provider
+integrations are being developed. Replace per-tool when the real
+provider client is wired in.
+"""
+
+# ─── Flight Mock Data ────────────────────────────────────────────────────
+
+MOCK_FLIGHTS = [
+    {
+        "airline": "Air France",
+        "flight_number": "AF 218",
+        "origin": "BOM",
+        "destination": "CDG",
+        "departure_time": "2025-06-15T02:15:00",
+        "arrival_time": "2025-06-15T08:45:00",
+        "duration": "PT8H30M",
+        "price": 856.00,
+        "currency": "USD",
+        "stops": 0,
+        "cabin_class": "ECONOMY",
+    },
+    {
+        "airline": "Lufthansa",
+        "flight_number": "LH 765",
+        "origin": "BOM",
+        "destination": "CDG",
+        "departure_time": "2025-06-15T14:30:00",
+        "arrival_time": "2025-06-16T01:15:00",
+        "duration": "PT10H45M",
+        "price": 692.00,
+        "currency": "USD",
+        "stops": 1,
+        "cabin_class": "ECONOMY",
+    },
+    {
+        "airline": "Emirates",
+        "flight_number": "EK 502",
+        "origin": "BOM",
+        "destination": "CDG",
+        "departure_time": "2025-06-15T08:00:00",
+        "arrival_time": "2025-06-15T16:30:00",
+        "duration": "PT12H30M",
+        "price": 749.00,
+        "currency": "USD",
+        "stops": 1,
+        "cabin_class": "ECONOMY",
+    },
+    {
+        "airline": "British Airways",
+        "flight_number": "BA 117",
+        "origin": "BOM",
+        "destination": "CDG",
+        "departure_time": "2025-06-15T21:45:00",
+        "arrival_time": "2025-06-16T08:20:00",
+        "duration": "PT14H35M",
+        "price": 589.00,
+        "currency": "USD",
+        "stops": 1,
+        "cabin_class": "ECONOMY",
+    },
+    {
+        "airline": "IndiGo",
+        "flight_number": "6E 1154",
+        "origin": "BOM",
+        "destination": "DEL",
+        "departure_time": "2025-06-15T06:00:00",
+        "arrival_time": "2025-06-15T08:05:00",
+        "duration": "PT2H5M",
+        "price": 95.00,
+        "currency": "USD",
+        "stops": 0,
+        "cabin_class": "ECONOMY",
+    },
+]
+
+# ─── Hotel Mock Data ─────────────────────────────────────────────────────
+
+MOCK_HOTELS = [
+    {
+        "name": "Hotel Le Marais",
+        "hotel_id": "HLPAR123",
+        "address": "15 Rue du Temple, Paris",
+        "city": "Paris",
+        "rating": 4.0,
+        "price_per_night": 140.00,
+        "total_price": 980.00,
+        "currency": "USD",
+        "amenities": ["Free WiFi", "Breakfast included", "City view", "Air conditioning"],
+        "source_url": None,
+    },
+    {
+        "name": "Grand Hotel Opera",
+        "hotel_id": "HLPAR456",
+        "address": "2 Rue Scribe, Paris",
+        "city": "Paris",
+        "rating": 4.5,
+        "price_per_night": 220.00,
+        "total_price": 1540.00,
+        "currency": "USD",
+        "amenities": ["Spa", "Rooftop bar", "Concierge", "Fitness center", "Free WiFi"],
+        "source_url": None,
+    },
+    {
+        "name": "Budget Inn Montmartre",
+        "hotel_id": "HLPAR789",
+        "address": "45 Rue Lepic, Paris",
+        "city": "Paris",
+        "rating": 3.0,
+        "price_per_night": 75.00,
+        "total_price": 525.00,
+        "currency": "USD",
+        "amenities": ["Free WiFi", "24hr reception"],
+        "source_url": None,
+    },
+    {
+        "name": "Boutique Hotel Saint-Germain",
+        "hotel_id": "HLPAR321",
+        "address": "8 Rue Bonaparte, Paris",
+        "city": "Paris",
+        "rating": 4.2,
+        "price_per_night": 180.00,
+        "total_price": 1260.00,
+        "currency": "USD",
+        "amenities": ["Restaurant", "Bar", "Free WiFi", "Laundry service"],
+        "source_url": None,
+    },
+    {
+        "name": "Ibis Paris Centre",
+        "hotel_id": "HLPAR654",
+        "address": "27 Rue de Turbigo, Paris",
+        "city": "Paris",
+        "rating": 3.5,
+        "price_per_night": 95.00,
+        "total_price": 665.00,
+        "currency": "USD",
+        "amenities": ["Free WiFi", "Bar", "24hr reception"],
+        "source_url": None,
+    },
+]

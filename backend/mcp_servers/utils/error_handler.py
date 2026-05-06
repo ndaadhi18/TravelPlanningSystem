@@ -1,5 +1,5 @@
 """
-MCP Error handling utilities.
+MCP error handling utilities.
 
 Provides standardized error formatting for MCP tool responses,
 ensuring consistent error structure across all tools.
@@ -59,7 +59,7 @@ class MCPToolError(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert error to dictionary for JSON serialization."""
-        result = {
+        result: dict[str, Any] = {
             "error": True,
             "code": self.code.value,
             "message": self.message,
@@ -85,7 +85,7 @@ def format_error_response(
     Returns:
         Dictionary suitable for JSON serialization
     """
-    response = {
+    response: dict[str, Any] = {
         "error": True,
         "code": code.value,
         "message": message,
@@ -95,34 +95,34 @@ def format_error_response(
     return response
 
 
-def format_amadeus_error(error: Exception) -> dict[str, Any]:
+def format_api_error(error: Exception, provider: str = "API") -> dict[str, Any]:
     """
-    Format Amadeus API errors into standardized MCP error responses.
+    Format external API errors into standardized MCP error responses.
 
     Args:
-        error: Exception from Amadeus SDK
+        error: Exception from an external API call
+        provider: Name of the API provider for context
 
     Returns:
         Formatted error dictionary
     """
     error_str = str(error).lower()
 
-    # Detect specific error types from Amadeus
-    if "authentication" in error_str or "unauthorized" in error_str:
+    if "authentication" in error_str or "unauthorized" in error_str or "401" in error_str:
         return format_error_response(
-            message="Amadeus authentication failed. Check API credentials.",
+            message=f"{provider} authentication failed. Check API credentials.",
             code=ErrorCode.AUTHENTICATION_FAILED,
             details={"original_error": str(error)},
         )
 
-    if "rate limit" in error_str or "too many requests" in error_str:
+    if "rate limit" in error_str or "too many requests" in error_str or "429" in error_str:
         return format_error_response(
-            message="Amadeus API rate limit exceeded. Please wait and retry.",
+            message=f"{provider} rate limit exceeded. Please wait and retry.",
             code=ErrorCode.RATE_LIMIT_EXCEEDED,
             details={"original_error": str(error)},
         )
 
-    if "not found" in error_str or "no results" in error_str:
+    if "not found" in error_str or "no results" in error_str or "404" in error_str:
         return format_error_response(
             message="No results found for the given search criteria.",
             code=ErrorCode.NOT_FOUND,
@@ -131,14 +131,13 @@ def format_amadeus_error(error: Exception) -> dict[str, Any]:
 
     if "timeout" in error_str:
         return format_error_response(
-            message="Amadeus API request timed out.",
+            message=f"{provider} request timed out.",
             code=ErrorCode.TIMEOUT,
             details={"original_error": str(error)},
         )
 
-    # Generic API error
     return format_error_response(
-        message=f"Amadeus API error: {str(error)}",
+        message=f"{provider} error: {str(error)}",
         code=ErrorCode.API_ERROR,
         details={"original_error": str(error)},
     )
