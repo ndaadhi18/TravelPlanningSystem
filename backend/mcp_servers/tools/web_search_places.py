@@ -144,6 +144,7 @@ def _search_with_fallback(input_params: WebSearchInput) -> list[dict[str, Any]]:
         if len(entries) >= input_params.max_results:
             break
 
+
     return entries
 
 

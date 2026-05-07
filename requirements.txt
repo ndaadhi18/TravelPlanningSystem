@@ -8,7 +8,7 @@ pydantic-settings          # Settings management from .env
 
 # === LLM & Agent Orchestration ===
 langchain                  # Core LangChain framework
-langchain-groq             # ChatGroq — primary LLM provider
+langchain-openai             # ChatGroq ï¿½ primary LLM provider
 langchain-core             # Base abstractions (tools, messages)
 langgraph                  # Agent orchestration graphs
 
@@ -16,8 +16,8 @@ langgraph                  # Agent orchestration graphs
 fastmcp                    # FastMCP server SDK
 
 # === External API SDKs ===
-amadeus                    # Amadeus flight + hotel API SDK
 tavily-python              # Tavily web search API
+# aerodatabox               # AeroDataBox flight API (add once key is configured)
 
 # === HTTP & Networking ===
 httpx                      # Async HTTP client (MCP communication, API fallbacks)

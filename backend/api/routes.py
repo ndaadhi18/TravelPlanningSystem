@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
+import uuid
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-import uuid
-import re
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
+from pydantic import BaseModel
 
+from backend.core.settings import get_settings
 from backend.schemas.accommodation import HotelOption
 from backend.schemas.itinerary import LocalInsight
 from backend.schemas.replit_api import (
@@ -23,6 +28,102 @@ from backend.orchestration.graph import build_graph
 
 router = APIRouter()
 graph = build_graph()
+
+# ── Intent-extraction system prompt ──────────────────────────────────────────
+
+_INTENT_PROMPT = """You are Aura, a conversational AI travel planning assistant. \
+Your job is to gather trip details through natural, friendly conversation, then hand off \
+to a team of specialized planning agents.
+
+You need to collect:
+- origin      : city or location they are departing from
+- destination : where they want to travel
+- days        : trip length as a plain integer string (e.g. "3", "7")
+- budget      : must map to exactly one of "budget", "moderate", or "luxury"
+- style       : must map to exactly one of "relaxed", "balanced", "action-packed", "culture", "foodie"
+- preferences : optional — interests, dietary needs, things to avoid (empty string if none)
+
+Conversation rules:
+- Be warm, enthusiastic, and genuinely curious
+- Let the conversation flow — ask about 1–2 things at a time, never fire a form
+- Accept natural language and infer sensibly:
+    "a week" → "7", "long weekend" → "3", "two weeks" → "14"
+    "cheap / backpacking" → "budget", "mid-range / normal" → "moderate", "splurge / high-end" → "luxury"
+    "chill / slow" → "relaxed", "mix of everything" → "balanced", "packed / adventure" → "action-packed"
+    "history / museums / art" → "culture", "food lover / local eats" → "foodie"
+- If the user gives multiple details at once, acknowledge them all and ask only about what is still missing
+- Preferences are optional — ask once; if the user skips or you already have the required fields, proceed
+- Keep each response concise: 2–4 sentences max before the intent signal
+
+When you have origin, destination, days, budget, and style — preferences are optional — respond with \
+a short enthusiastic confirmation that you are ready to start (e.g. "I have everything I need — \
+spinning up the agents now!"). Then on the very last line of your reply output this marker \
+with no trailing text whatsoever:
+
+__INTENT__{"origin":"VALUE","destination":"VALUE","days":"NUMBER","budget":"LEVEL","style":"STYLE","preferences":"VALUE"}
+
+JSON rules:
+- days  : quoted integer string — "3", "7", "14"
+- budget: exactly "budget", "moderate", or "luxury"
+- style : exactly "relaxed", "balanced", "action-packed", "culture", or "foodie"
+- preferences: empty string "" if not provided
+- Output the marker on the LAST line; nothing after it
+"""
+
+
+# ── Chat streaming endpoint ───────────────────────────────────────────────────
+
+class _ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class _ChatRequest(BaseModel):
+    messages: list[_ChatMessage]
+
+
+@router.post("/api/chat")
+@router.post("/chat")
+async def chat_stream(request: _ChatRequest):
+    """Stream an intent-extraction conversation with gpt-4o-mini via SSE."""
+    settings = get_settings()
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+    async def _generate():
+        api_messages: list[dict[str, str]] = [
+            {"role": "system", "content": _INTENT_PROMPT},
+        ]
+        api_messages.extend(
+            {"role": m.role, "content": m.content} for m in request.messages
+        )
+
+        try:
+            stream = await client.chat.completions.create(
+                model=settings.openai_model_name,
+                messages=api_messages,
+                stream=True,
+                temperature=0.7,
+                max_tokens=512,
+            )
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield f"data: {json.dumps({'type': 'delta', 'content': content})}\n\n"
+        except Exception as exc:
+            fallback = "I'm having a little trouble right now — please try again in a moment."
+            yield f"data: {json.dumps({'type': 'delta', 'content': fallback})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 def extract_budget(budget_str: str) -> float:
     match = re.search(r'\d+', budget_str.replace(',', ''))

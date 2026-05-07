@@ -1,4 +1,7 @@
 .venv/
 .env
-C:\Users\ADARSH S\OneDrive\Desktop\itinerai-core\.env.example
+.env.example
+frontend/node_modules
+backend/__pycache__
+backend/mcp_servers/__pycache__
 
