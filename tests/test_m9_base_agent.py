@@ -45,8 +45,8 @@ def test_llm_instantiation_with_injected_factory() -> None:
         return FakeLLM()
 
     fake_settings = SimpleNamespace(
-        groq_api_key="groq_test_key",
-        groq_model_name="llama-test-model",
+        openai_api_key="groq_test_key",
+        openai_model_name="llama-test-model",
     )
 
     with patch("backend.agents.base_agent.get_settings", return_value=fake_settings):

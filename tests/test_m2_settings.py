@@ -29,7 +29,7 @@ print("\n[2] Load settings from .env...")
 try:
     settings = get_settings()
     print(f"  OK: Settings loaded")
-    print(f"      groq_model_name: {settings.groq_model_name}")
+    print(f"      openai_model_name: {settings.openai_model_name}")
     print(f"      mcp_server_url: {settings.mcp_server_url}")
     print(f"      app_env: {settings.app_env}")
     print(f"      log_level: {settings.log_level}")
@@ -40,15 +40,15 @@ except Exception as e:
 
 # ── 3. Verify Required Keys Are Present ─────────────────────────
 print("\n[3] Verify required keys...")
-assert settings.groq_api_key, "groq_api_key should be set"
+assert settings.openai_api_key, "openai_api_key should be set"
 assert settings.tavily_api_key, "tavily_api_key should be set"
-print(f"  OK: groq_api_key is set (length: {len(settings.groq_api_key)})")
+print(f"  OK: openai_api_key is set (length: {len(settings.openai_api_key)})")
 print(f"  OK: tavily_api_key is set (length: {len(settings.tavily_api_key)})")
 
 
 # ── 4. Test Default Values ──────────────────────────────────────
 print("\n[4] Test default values...")
-assert settings.groq_model_name == "llama-3.3-70b-versatile", "Default model should be llama-3.3-70b-versatile"
+assert settings.openai_model_name == "gpt-4o-mini", "Default model should be gpt-4o-mini"
 assert settings.mcp_server_host == "localhost", "Default MCP host should be localhost"
 assert settings.mcp_server_port == 8001, "Default MCP port should be 8001"
 assert settings.amadeus_hostname == "test", "Default Amadeus hostname should be test"
@@ -90,7 +90,7 @@ from pydantic import ValidationError
 try:
     # Use model_validate to bypass env loading and test pure validation
     Settings.model_validate({
-        "groq_api_key": "test",
+        "openai_api_key": "test",
         "tavily_api_key": "test",
         "app_env": "invalid_env",
     })
@@ -103,7 +103,7 @@ except ValidationError as e:
 print("\n[9] Test validation: invalid log_level...")
 try:
     Settings.model_validate({
-        "groq_api_key": "test",
+        "openai_api_key": "test",
         "tavily_api_key": "test",
         "log_level": "TRACE",
     })
@@ -115,13 +115,13 @@ except ValidationError as e:
 # ── 10. Test Validation: Missing Required Key ───────────────────
 print("\n[10] Test validation: missing required key...")
 try:
-    # model_validate without env loading — groq_api_key is missing
+    # model_validate without env loading — openai_api_key is missing
     Settings.model_validate({
         "tavily_api_key": "test",
     })
-    print("  FAIL: Should have rejected missing groq_api_key")
+    print("  FAIL: Should have rejected missing openai_api_key")
 except ValidationError as e:
-    print(f"  OK: Rejected missing groq_api_key — ValidationError")
+    print(f"  OK: Rejected missing openai_api_key — ValidationError")
 
 
 # ── 11. Test Dependencies Import ────────────────────────────────

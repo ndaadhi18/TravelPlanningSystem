@@ -25,9 +25,11 @@ def route_after_planning(_state: Mapping[str, Any]) -> list[str]:
 
 def route_after_constraint(_state: Mapping[str, Any]) -> str:
     """
-    Move into feedback/human-in-the-loop stage after itinerary assembly.
+    End the graph after itinerary assembly.
+    Feedback/re-planning is handled externally via a new /api/plan call.
     """
-    return "feedback"
+    from langgraph.graph import END
+    return END
 
 
 def route_after_feedback(state: Mapping[str, Any]) -> str:

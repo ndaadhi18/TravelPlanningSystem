@@ -280,13 +280,37 @@ async def create_plan(input_data: TravelPlanInput):
 
     days_out: list[APIDayPlan] = []
     for d in itinerary.days:
-        activities = [a.name for a in getattr(d, "activities", []) or []]
-        if getattr(d, "hotel", None):
-            activities.insert(0, f"Check in to {d.hotel.name}")
+        activities = []
+
+        # Flight info goes first on travel days
         if getattr(d, "transport", None):
+            t = d.transport
+            dep = getattr(t, "origin", "?")
+            arr = getattr(t, "destination", "?")
+            dep_time = getattr(t, "departure_time", "")
+            dep_label = dep_time.split("T")[1][:5] if dep_time and "T" in dep_time else ""
             activities.append(
-                f"Flight options for day: {d.transport.airline} {d.transport.flight_number}"
+                f"\u2708 Fly {t.airline} {t.flight_number}: {dep} \u2192 {arr}"
+                + (f" at {dep_label}" if dep_label else "")
+                + (f" \u00b7 {t.price:.0f} {t.currency}" if getattr(t, "price", 0) else "")
             )
+
+        for a in (getattr(d, "activities", []) or []):
+            name = getattr(a, "name", "").strip()
+            desc = getattr(a, "description", "").strip()
+            # Reconstruct "Morning: Land, clear customs and check in..." format
+            if name and desc:
+                activities.append(f"{name}: {desc}")
+            elif desc:
+                activities.append(desc)
+            elif name:
+                activities.append(name)
+
+        # Hotel check-in note (append at end so it doesn't break flow)
+        if getattr(d, "hotel", None) and d.day_number == 1:
+            rating = f" (★{d.hotel.rating:.1f})" if d.hotel.rating else ""
+            price = f" · ₹{d.hotel.price_per_night:.0f}/night" if d.hotel.price_per_night else ""
+            activities.insert(1, f"\U0001f3e8 Staying at {d.hotel.name}{rating}{price}")
 
         days_out.append(
             APIDayPlan(
@@ -294,6 +318,7 @@ async def create_plan(input_data: TravelPlanInput):
                 title=d.title or f"Day {getattr(d, 'day_number', '?')} Plan",
                 activities=activities,
             )
+
         )
 
     budget_summary = getattr(itinerary, "budget_summary", None)

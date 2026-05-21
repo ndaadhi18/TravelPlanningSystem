@@ -4,8 +4,8 @@ import { useCreateTravelPlan } from "@workspace/api-client-react";
 import { TripForm } from "@/components/trip-form";
 import { LoadingSteps } from "@/components/loading-steps";
 import { Itinerary } from "@/components/itinerary";
-import { Bot, BrainCircuit, Compass, GitBranch, Globe2, Route, Sparkles } from "lucide-react";
-import type { TravelPlanOutput } from "@workspace/api-client-react/src/generated/api.schemas";
+import { Bot, BrainCircuit, GitBranch, Compass, Sparkles } from "lucide-react";
+import type { TravelPlanOutput, TravelPlanInput } from "@workspace/api-client-react";
 
 const pageVariants = {
   hidden: { opacity: 0, y: 18, filter: "blur(10px)" },
@@ -16,18 +16,44 @@ const pageVariants = {
 const trustSignals = [
   { icon: BrainCircuit, label: "Multi-agent reasoning" },
   { icon: GitBranch, label: "Editable planning loop" },
-  { icon: Sparkles, label: "Progressive itinerary" },
+  { icon: Sparkles, label: "MCP tool calls" },
 ];
 
 export default function Home() {
   const [plan, setPlan] = useState<TravelPlanOutput | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [originalInput, setOriginalInput] = useState<TravelPlanInput | null>(null);
   const createPlan = useCreateTravelPlan();
 
   const handleRestart = () => {
     setPlan(null);
     setErrorMessage(null);
+    setOriginalInput(null);
     createPlan.reset();
+  };
+
+  const handleSubmit = (data: TravelPlanInput) => {
+    setErrorMessage(null);
+    setOriginalInput(data);
+    createPlan.mutate(
+      { data },
+      {
+        onSuccess: (res) => setPlan(res),
+        onError: () => setErrorMessage("The planning agents could not start. Please review the trip details and try again."),
+      },
+    );
+  };
+
+  const handleImprove = (data: TravelPlanInput) => {
+    setOriginalInput(data);
+    setPlan(null);
+    createPlan.mutate(
+      { data },
+      {
+        onSuccess: (res) => setPlan(res),
+        onError: () => setErrorMessage("The re-planning agents could not start. Please try again."),
+      },
+    );
   };
 
   return (
@@ -49,7 +75,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-sm uppercase tracking-[0.32em] text-white/45">AI Travel OS</p>
-            <h1 className="font-sans text-lg font-semibold tracking-tight text-white">Aura Planner</h1>
+            <h1 className="font-sans text-lg font-semibold tracking-tight text-white">PlanIT</h1>
           </div>
         </motion.div>
 
@@ -60,7 +86,7 @@ export default function Home() {
           className="hidden rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 text-sm text-white/70 backdrop-blur-xl md:flex md:items-center md:gap-2"
         >
           <Bot className="h-4 w-4 text-cyan-100" />
-          Interactive multi-agent planning
+          Multi-agent AI Travel Planner
         </motion.div>
       </header>
 
@@ -77,16 +103,6 @@ export default function Home() {
               className="grid min-h-[calc(100dvh-112px)] items-center gap-10 py-10 lg:grid-cols-[0.95fr_560px]"
             >
               <div className="max-w-3xl">
-                <motion.div
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: 0.08 }}
-                  className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100 shadow-2xl shadow-cyan-500/10 backdrop-blur-xl"
-                >
-                  <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.9)]" />
-                  Conversational AI travel workflow
-                </motion.div>
-
                 <motion.h2
                   initial={{ opacity: 0, y: 24 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -105,7 +121,7 @@ export default function Home() {
                   transition={{ duration: 0.65, delay: 0.28 }}
                   className="mt-7 max-w-2xl text-lg leading-8 text-slate-300 md:text-xl"
                 >
-                  Chat through your trip details, watch each planning agent work, then edit, regenerate, approve, and move into a booking-ready flow.
+                  Chat through your trip details. Watch Transport, Accommodation, and Local Expert agents fetch real data via MCP, then get a full itinerary you can iterate on.
                 </motion.p>
 
                 <motion.div
@@ -121,50 +137,6 @@ export default function Home() {
                     </div>
                   ))}
                 </motion.div>
-
-                <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.65, delay: 0.5 }} className="mt-8 flex flex-wrap gap-2 text-xs text-white/45">
-                  {[
-                    "Planner",
-                    "Transport",
-                    "Accommodation",
-                    "Local Expert",
-                    "Constraint",
-                    "MCP-ready",
-                  ].map((agent) => (
-                    <span key={agent} className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 backdrop-blur-xl">
-                      {agent}
-                    </span>
-                  ))}
-                </motion.div>
-
-                <motion.button
-                  type="button"
-                  initial={{ opacity: 0, y: 18 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.65, delay: 0.58 }}
-                  onClick={() => {
-                    setErrorMessage(null);
-                    createPlan.mutate(
-                      {
-                        data: {
-                          origin: "Bangalore",
-                          destination: "Goa",
-                          days: "3",
-                          budget: "moderate",
-                          style: "cultural & activity",
-                          preferences: "beaches, churches, food, local markets, hotel and activity bookings",
-                        },
-                      },
-                      {
-                        onSuccess: (res) => setPlan(res),
-                        onError: () => setErrorMessage("The Goa demo could not start. Please try again."),
-                      },
-                    );
-                  }}
-                  className="mt-7 rounded-2xl border border-[#ff7a59]/40 bg-[#ff7a59]/12 px-5 py-3 text-sm font-black text-[#ffd0c7] shadow-[0_16px_60px_rgba(255,107,95,0.12)] transition hover:-translate-y-0.5 hover:bg-[#ff7a59]/20 hover:text-white"
-                >
-                  Launch Bangalore → Goa demo
-                </motion.button>
               </div>
 
               <motion.div
@@ -177,18 +149,7 @@ export default function Home() {
                 <TripForm
                   isSubmitting={createPlan.isPending}
                   errorMessage={errorMessage}
-                  onSubmit={(data) => {
-                    setErrorMessage(null);
-                    createPlan.mutate(
-                      { data },
-                      {
-                        onSuccess: (res) => setPlan(res),
-                        onError: () => {
-                          setErrorMessage("The planning agents could not start. Please review the trip details and try again.");
-                        },
-                      },
-                    );
-                  }}
+                  onSubmit={handleSubmit}
                 />
               </motion.div>
             </motion.section>
@@ -218,7 +179,13 @@ export default function Home() {
               transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
               className="py-8"
             >
-              <Itinerary plan={plan} onRestart={handleRestart} />
+              <Itinerary
+                plan={plan}
+                onRestart={handleRestart}
+                onImprove={handleImprove}
+                isReimproving={createPlan.isPending}
+                originalInput={originalInput}
+              />
             </motion.section>
           )}
         </AnimatePresence>

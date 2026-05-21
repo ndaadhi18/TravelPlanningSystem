@@ -106,8 +106,8 @@ async def _guard_runtime_requirements() -> Optional[str]:
             f"(missing/invalid env keys): {e}"
         )
 
-    if not settings.groq_api_key.strip():
-        return "GROQ_API_KEY is empty; real LLM run is unavailable."
+    if not settings.openai_api_key.strip():
+        return "OPENAI_API_KEY is empty; real LLM run is unavailable."
 
     selected_transport = os.getenv("MCP_TRANSPORT", "streamable-http").strip().lower()
     if selected_transport in {"stdio", ""}:

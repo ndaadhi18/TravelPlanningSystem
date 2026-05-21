@@ -14,23 +14,45 @@ from backend.agents.accommodation_agent.prompts import (
     ACCOMMODATION_SYSTEM_PROMPT,
     build_accommodation_clarification,
 )
-from backend.schemas.accommodation import HotelSearchInput, PriceRange
+from backend.schemas.accommodation import HotelSearchInput, HotelOption, PriceRange
 from backend.schemas.travel_intent import TravelIntent, TravelStyle
 from backend.services.mcp_client import MCPClient
 from backend.utils.logger import get_logger
 
 logger = get_logger("agents.accommodation")
 
+# ── City name → IATA code lookup ────────────────────────────────────────────
+_CITY_TO_IATA: dict[str, str] = {
+    "mumbai": "BOM", "bombay": "BOM",
+    "delhi": "DEL", "new delhi": "DEL",
+    "bangalore": "BLR", "bengaluru": "BLR",
+    "hyderabad": "HYD", "chennai": "MAA", "madras": "MAA",
+    "kolkata": "CCU", "calcutta": "CCU",
+    "ahmedabad": "AMD", "pune": "PNQ", "goa": "GOI",
+    "jaipur": "JAI", "kochi": "COK", "cochin": "COK",
+    "lucknow": "LKO", "bhopal": "BHO", "indore": "IDR",
+    "amritsar": "ATQ", "varanasi": "VNS", "agra": "AGR",
+    "london": "LON", "paris": "PAR", "new york": "NYC",
+    "tokyo": "TYO", "dubai": "DXB", "singapore": "SIN",
+    "bangkok": "BKK", "sydney": "SYD", "toronto": "YTO",
+    "berlin": "BER", "amsterdam": "AMS", "rome": "ROM",
+    "barcelona": "BCN", "madrid": "MAD", "istanbul": "IST",
+    "beijing": "BJS", "shanghai": "SHA", "hong kong": "HKG",
+    "seoul": "SEL", "osaka": "OSA", "kuala lumpur": "KUL",
+    "los angeles": "LAX", "chicago": "CHI", "miami": "MIA",
+    "san francisco": "SFO", "mexico city": "MEX",
+    "cairo": "CAI", "nairobi": "NBI", "johannesburg": "JNB",
+}
+
+
+def _city_to_iata(city_name: str) -> Optional[str]:
+    return _CITY_TO_IATA.get(city_name.lower().strip())
+
 
 class AccommodationAgent(BaseAgent):
     """Construct hotel search params from intent and fetch hotel options."""
 
-    def __init__(
-        self,
-        *,
-        llm: Optional[Any] = None,
-        mcp_client: Optional[MCPClient] = None,
-    ):
+    def __init__(self, *, llm: Optional[Any] = None, mcp_client: Optional[MCPClient] = None):
         super().__init__("accommodation_agent", llm=llm)
         self._mcp_client = mcp_client
 
@@ -57,30 +79,46 @@ class AccommodationAgent(BaseAgent):
         owns_mcp_client = self._mcp_client is None
 
         try:
-            search_input = await self._build_search_input(intent, state)
-            logger.info(
-                f"AccommodationAgent searching hotels in '{search_input.city_code}' "
-                f"from {search_input.check_in} to {search_input.check_out}"
-            )
-            hotels = await mcp_client.search_hotels(search_input)
-            return {"hotel_options": hotels}
+            destination = (intent.destination or "").split(",")[0].strip()
+            iata_code = _city_to_iata(destination)
+
+            if iata_code:
+                try:
+                    search_input = _build_hotel_search_input(intent, iata_code)
+                    logger.info(
+                        f"AccommodationAgent searching hotels in '{iata_code}' "
+                        f"from {search_input.check_in} to {search_input.check_out}"
+                    )
+                    hotels = await mcp_client.search_hotels(search_input)
+                    if hotels:
+                        return {"hotel_options": hotels}
+                except Exception as amadeus_err:
+                    logger.warning(f"Amadeus hotel search failed: {amadeus_err}. Falling back to Tavily.")
+
+            # ── Tavily fallback ─────────────────────────────────────────
+            logger.info(f"AccommodationAgent: Tavily web search for hotels in '{destination}'")
+            from backend.schemas.itinerary import SearchDepth, WebSearchInput
+            style = _style_label(intent)
+            query = f"best {style} hotels to stay in {destination} {intent.start_date or ''} review price per night"
+            web_input = WebSearchInput(query=query[:400], search_depth=SearchDepth.ADVANCED, max_results=5)
+            insights = await mcp_client.web_search_places(web_input)
+            hotel_options = [
+                HotelOption(
+                    name=getattr(ins, "name", "Hotel option"),
+                    address=destination,
+                    price_per_night=getattr(ins, "estimated_cost", None) or 0.0,
+                    currency="USD",
+                    amenities=[],
+                    source_url=getattr(ins, "source_url", None),
+                )
+                for ins in insights
+            ]
+            return {"hotel_options": hotel_options}
 
         except Exception as error:
-            wrapped = wrap_agent_error(
-                "accommodation_agent",
-                "run",
-                error,
-                context={"current_phase": state.get("current_phase", "planning")},
-            )
-            return {
-                "hotel_options": [],
-                "errors": [wrapped.message],
-                "messages": [
-                    "I couldn't fetch hotel options right now. "
-                    "Please confirm your destination and stay dates, then I will try again."
-                ],
-                "current_phase": "planning",
-            }
+            wrapped = wrap_agent_error("accommodation_agent", "run", error,
+                                       context={"current_phase": state.get("current_phase")})
+            return {"hotel_options": [], "errors": [wrapped.message], "current_phase": "planning"}
         finally:
             if owns_mcp_client:
                 await mcp_client.close()
@@ -109,14 +147,15 @@ class AccommodationAgent(BaseAgent):
                     "LLM accommodation-parameter mapping failed; using deterministic fallback."
                 )
 
-        return _build_hotel_search_input(intent)
+        # Note: This fallback path might need an IATA code if called directly.
+        # Keeping for legacy compatibility but primarily using the new flow in run().
+        destination = (intent.destination or "").split(",")[0].strip()
+        iata_code = _city_to_iata(destination) or destination
+        return _build_hotel_search_input(intent, iata_code)
 
 
 async def accommodation_node(
-    state: Mapping[str, Any],
-    *,
-    llm: Optional[Any] = None,
-    mcp_client: Optional[MCPClient] = None,
+    state: Mapping[str, Any], *, llm: Optional[Any] = None, mcp_client: Optional[MCPClient] = None,
 ) -> dict[str, Any]:
     """LangGraph-compatible accommodation node entrypoint."""
     agent = AccommodationAgent(llm=llm, mcp_client=mcp_client)
@@ -149,30 +188,26 @@ def _missing_accommodation_fields(intent: TravelIntent) -> list[str]:
     return missing
 
 
+def _style_label(intent: TravelIntent) -> str:
+    mapping = {
+        TravelStyle.BUDGET: "budget-friendly",
+        TravelStyle.MID_RANGE: "mid-range",
+        TravelStyle.LUXURY: "luxury",
+    }
+    return mapping.get(intent.travel_style, "good") if intent.travel_style else "good"
+
+
 # ── Search input builder ─────────────────────────────────────────────────
 
-def _build_hotel_search_input(intent: TravelIntent) -> HotelSearchInput:
-    """
-    Build HotelSearchInput from TravelIntent.
-
-    city_code is passed as the destination name (e.g. "Paris") rather than
-    a 3-letter IATA-style code, because Booking.com resolves by city name.
-    The MCP tool / BookingComClient handles dest_id resolution internally.
-    """
+def _build_hotel_search_input(intent: TravelIntent, iata_code: str) -> HotelSearchInput:
     check_in = intent.start_date or ""
     check_out = _resolve_check_out(intent.start_date, intent.end_date, intent.duration_days)
     if check_out is None and check_in:
         check_out = (date.fromisoformat(check_in) + timedelta(days=1)).isoformat()
     check_out = check_out or ""
-
     nights = _trip_nights(check_in, check_out)
-
-    # Use the first part of the destination (before comma) as the city name
-    destination = intent.destination or ""
-    city_name = destination.split(",")[0].strip() or destination
-
     return HotelSearchInput(
-        city_code=city_name,
+        city_code=iata_code,
         check_in=check_in,
         check_out=check_out,
         adults=max(1, int(intent.num_travelers)),
@@ -192,17 +227,14 @@ def _resolve_check_out(
     if not start_date or not duration_days:
         return None
     try:
-        start = date.fromisoformat(start_date)
+        return (date.fromisoformat(start_date) + timedelta(days=duration_days)).isoformat()
     except ValueError:
         return None
-    return (start + timedelta(days=duration_days)).isoformat()
 
 
 def _trip_nights(check_in: str, check_out: str) -> int:
     try:
-        start = date.fromisoformat(check_in)
-        end = date.fromisoformat(check_out)
-        return max(1, (end - start).days)
+        return max(1, (date.fromisoformat(check_out) - date.fromisoformat(check_in)).days)
     except ValueError:
         return 1
 

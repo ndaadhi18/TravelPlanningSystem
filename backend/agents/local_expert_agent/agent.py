@@ -147,16 +147,26 @@ def _build_web_search_input(intent: TravelIntent) -> WebSearchInput:
 
 def _compose_broad_query(intent: TravelIntent) -> str:
     destination = (intent.destination or "").strip()
-    base = (
-        "best attractions, hidden gems, local food spots, and cultural experiences in "
-        f"{destination}"
-    )
-    if intent.preferences:
-        base = f"{base} for {intent.preferences.strip()}"
-    if intent.special_requirements:
-        base = f"{base}. consider {intent.special_requirements.strip()}"
-    # WebSearchInput caps query length at 500 chars.
-    return base[:500]
+    prefs = (intent.preferences or "").strip()
+    style = intent.travel_style.value if intent.travel_style else ""
+    duration = intent.duration_days or 3
+
+    # Build a rich, targeted query instead of a generic template
+    parts = [f"things to do in {destination}"]
+    if style and style not in ("mid_range", "mid-range"):
+        parts.append(style.replace("_", " ") + " travel")
+    if prefs and len(prefs) < 120:
+        parts.append(prefs)
+    if duration <= 3:
+        parts.append("top highlights must-see")
+    elif duration <= 7:
+        parts.append("hidden gems local culture itinerary")
+    else:
+        parts.append("off-beat experiences local neighborhoods day trips")
+
+    query = " ".join(parts)
+    return query[:400]
+
 
 
 def _extract_latest_user_text(state: Mapping[str, Any]) -> str:
