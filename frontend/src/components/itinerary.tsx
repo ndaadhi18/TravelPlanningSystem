@@ -70,6 +70,7 @@ function FlightCard({ item }: { item: { title: string; snippet: string; price_hi
 }
 
 function HotelCard({ item }: { item: { title: string; snippet: string; price_hint: string; source: string; url?: string } }) {
+  const showPrice = item.price_hint && !item.price_hint.startsWith("0") && item.price_hint !== "0.00 USD" && item.price_hint !== "0.00 INR";
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -81,10 +82,10 @@ function HotelCard({ item }: { item: { title: string; snippet: string; price_hin
       </div>
       <div className="min-w-0 flex-1">
         <p className="font-semibold text-white">{item.title}</p>
-        <p className="mt-0.5 text-sm text-white/55">{item.snippet}</p>
+        <p className="mt-0.5 text-sm text-white/55 line-clamp-2">{item.snippet}</p>
         <div className="mt-2 flex flex-wrap gap-2">
           <span className={pill("", "emerald")}>{item.source}</span>
-          {item.price_hint && item.price_hint !== "0.00 USD" && (
+          {showPrice && (
             <span className={pill("", "amber")}>{item.price_hint}</span>
           )}
         </div>
@@ -106,7 +107,7 @@ function ActivityCard({ item }: { item: { title: string; snippet: string; price_
       </div>
       <div className="min-w-0 flex-1">
         <p className="font-semibold text-white">{item.title}</p>
-        <p className="mt-0.5 text-sm leading-relaxed text-white/55">{item.snippet}</p>
+        <p className="mt-0.5 text-sm leading-relaxed text-white/55 line-clamp-3">{item.snippet}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {item.category && <span className={pill("", "amber")}>{item.category}</span>}
           <span className={pill("", "cyan")}>{item.source}</span>
@@ -130,55 +131,80 @@ function ActivityCard({ item }: { item: { title: string; snippet: string; price_
   );
 }
 
-// Time-of-day badge colours
-const TIME_COLORS: Record<string, string> = {
-  Morning: "border-amber-300/30 bg-amber-300/15 text-amber-200",
-  Afternoon: "border-sky-300/30 bg-sky-300/15 text-sky-200",
-  Evening: "border-violet-300/30 bg-violet-300/15 text-violet-200",
-  Night: "border-slate-300/30 bg-slate-300/15 text-slate-300",
+// Time-of-day visual config
+const TIME_CONFIG: Record<string, {
+  emoji: string;
+  badge: string;
+  dot: string;
+  leftBar: string;
+  cardBg: string;
+}> = {
+  Morning:   { emoji: "☀️",  badge: "border-amber-400/35 bg-amber-400/15 text-amber-200",  dot: "bg-amber-400",   leftBar: "bg-amber-400/50",  cardBg: "bg-amber-400/[0.04] border-amber-300/10" },
+  Afternoon: { emoji: "🌤️", badge: "border-sky-400/35 bg-sky-400/15 text-sky-200",        dot: "bg-sky-400",    leftBar: "bg-sky-400/50",    cardBg: "bg-sky-400/[0.04] border-sky-300/10" },
+  Evening:   { emoji: "🌆",  badge: "border-violet-400/35 bg-violet-400/15 text-violet-200", dot: "bg-violet-400", leftBar: "bg-violet-400/50", cardBg: "bg-violet-400/[0.04] border-violet-300/10" },
+  Night:     { emoji: "🌙",  badge: "border-indigo-400/35 bg-indigo-400/15 text-indigo-200", dot: "bg-indigo-400", leftBar: "bg-indigo-400/50", cardBg: "bg-indigo-400/[0.04] border-indigo-300/10" },
 };
 
-const ACTIVITY_ICONS: Record<string, string> = {
-  "✈": "✈", "🏨": "🏨",
-};
-
-function ActivityItem({ act, i }: { act: string; i: number }) {
-  // Detect "Morning: description" pattern
+function ActivityItem({ act, i, isLast }: { act: string; i: number; isLast?: boolean }) {
   const colonIdx = act.indexOf(":");
   const timeLabels = ["Morning", "Afternoon", "Evening", "Night"];
-  const hasTimeLabel = colonIdx > 0 && timeLabels.includes(act.slice(0, colonIdx).trim());
+  const label = colonIdx > 0 ? act.slice(0, colonIdx).trim() : "";
+  const hasTimeLabel = timeLabels.includes(label);
+  const desc = colonIdx > 0 ? act.slice(colonIdx + 1).trim() : act;
 
-  // Emoji-prefixed items (flight, hotel)
-  const isSpecial = act.startsWith("✈") || act.startsWith("🏨");
+  // Flight item
+  if (act.startsWith("✈")) {
+    return (
+      <div className={`relative mb-3 pl-6 ${isLast ? "" : ""}`}>
+        <span className="absolute left-[3px] top-3 h-3 w-3 rounded-full border-2 border-sky-400 bg-slate-900" />
+        <div className="rounded-xl border border-sky-400/20 bg-sky-400/[0.07] px-4 py-3 flex items-center gap-3">
+          <Plane className="h-4 w-4 shrink-0 text-sky-300" />
+          <p className="text-sm font-semibold text-sky-100">{act.slice(2).trim()}</p>
+        </div>
+      </div>
+    );
+  }
 
+  // Hotel item
+  if (act.startsWith("🏨")) {
+    return (
+      <div className={`relative mb-3 pl-6`}>
+        <span className="absolute left-[3px] top-3 h-3 w-3 rounded-full border-2 border-emerald-400 bg-slate-900" />
+        <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-4 py-3 flex items-center gap-3">
+          <BedDouble className="h-4 w-4 shrink-0 text-emerald-300" />
+          <p className="text-sm font-semibold text-emerald-100">{act.slice(2).trim()}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Time-labelled item (Morning / Afternoon / Evening / Night)
   if (hasTimeLabel) {
-    const label = act.slice(0, colonIdx).trim();
-    const desc = act.slice(colonIdx + 1).trim();
-    const badgeClass = TIME_COLORS[label] ?? "border-white/20 bg-white/10 text-white/60";
+    const cfg = TIME_CONFIG[label];
     return (
-      <li className="flex items-start gap-3 rounded-xl border border-white/8 bg-white/[0.04] px-4 py-3">
-        <span className={`mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide ${badgeClass}`}>
-          {label}
-        </span>
-        <p className="text-sm leading-relaxed text-white/80">{desc}</p>
-      </li>
+      <div className="relative mb-3 pl-6">
+        <span className={`absolute left-[3px] top-3.5 h-2.5 w-2.5 rounded-full ${cfg.dot}`} />
+        <div className={`rounded-xl border px-4 py-3 ${cfg.cardBg}`}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-[13px]">{cfg.emoji}</span>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide ${cfg.badge}`}>
+              {label}
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed text-white/80">{desc}</p>
+        </div>
+      </div>
     );
   }
 
-  if (isSpecial) {
-    return (
-      <li className="flex items-start gap-3 rounded-xl border border-cyan-300/15 bg-cyan-300/[0.06] px-4 py-3">
-        <span className="mt-0.5 shrink-0 text-base">{act.slice(0, 2)}</span>
-        <p className="text-sm leading-relaxed text-cyan-100">{act.slice(2).trim()}</p>
-      </li>
-    );
-  }
-
+  // Generic bullet
   return (
-    <li className="flex items-start gap-3 rounded-xl border border-white/8 bg-white/[0.04] px-4 py-3">
-      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-400" />
-      <p className="text-sm leading-relaxed text-white/75">{act}</p>
-    </li>
+    <div className="relative mb-3 pl-6">
+      <span className="absolute left-[3px] top-2.5 h-2 w-2 rounded-full bg-cyan-400/60" />
+      <div className="rounded-xl border border-white/8 bg-white/[0.04] px-4 py-3">
+        <p className="text-sm leading-relaxed text-white/75">{act}</p>
+      </div>
+    </div>
   );
 }
 
@@ -190,40 +216,70 @@ function DayBlock({
   index: number;
 }) {
   const [open, setOpen] = useState(index === 0);
+
+  const gradients = [
+    "from-cyan-400/40 to-blue-500/40",
+    "from-violet-400/40 to-purple-500/40",
+    "from-emerald-400/40 to-teal-500/40",
+    "from-amber-400/40 to-orange-500/40",
+    "from-rose-400/40 to-pink-500/40",
+    "from-sky-400/40 to-indigo-500/40",
+    "from-lime-400/40 to-green-500/40",
+  ];
+  const grad = gradients[index % gradients.length];
+
+  const timeCount = day.activities.filter(a => {
+    const l = a.split(":")[0].trim();
+    return ["Morning", "Afternoon", "Evening", "Night"].includes(l);
+  }).length;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.07 }}
-      className="overflow-hidden rounded-2xl border border-white/10"
+      transition={{ delay: index * 0.06 }}
+      className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm"
     >
+      {/* Header */}
       <button
         onClick={() => setOpen((p) => !p)}
-        className="flex w-full items-center gap-4 bg-white/[0.05] p-4 text-left transition hover:bg-white/[0.08]"
+        className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-white/[0.04]"
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-400/40 to-blue-500/40 text-sm font-black text-white">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${grad} text-sm font-black text-white shadow-lg`}>
           {index + 1}
         </span>
-        <div className="flex-1">
-          <p className="font-semibold text-white">{day.day}</p>
-          {day.title && <p className="text-xs text-white/45">{day.title}</p>}
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-white">{day.day}</p>
+          {day.title && <p className="text-xs text-white/40 mt-0.5 truncate">{day.title}</p>}
         </div>
-        <span className="text-xs text-white/35">{day.activities.length} activities</span>
-        <span className={`text-white/30 transition-transform duration-300 ${open ? "rotate-180" : ""}`}>▾</span>
+        <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold text-white/40">
+          {day.activities.length} activities
+        </span>
+        <span className={`shrink-0 text-white/30 transition-transform duration-300 ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
+
+      {/* Timeline body */}
       <AnimatePresence initial={false}>
         {open && (
-          <motion.ul
+          <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="space-y-2 overflow-hidden p-4"
+            className="overflow-hidden"
           >
-            {day.activities.map((act, i) => (
-              <ActivityItem key={i} act={act} i={i} />
-            ))}
-          </motion.ul>
+            {/* top divider */}
+            <div className="mx-5 h-px bg-white/8" />
+
+            <div className="relative px-5 py-4">
+              {/* Vertical timeline line */}
+              <div className="absolute left-[29px] top-4 bottom-4 w-px bg-white/10" />
+
+              {day.activities.map((act, i) => (
+                <ActivityItem key={i} act={act} i={i} isLast={i === day.activities.length - 1} />
+              ))}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </motion.div>

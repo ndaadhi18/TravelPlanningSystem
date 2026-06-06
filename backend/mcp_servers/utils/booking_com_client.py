@@ -47,6 +47,10 @@ _CITY_TO_DEST_ID: dict[str, str] = {
     "jaipur": "-2090634",
     "kochi": "-2090822",
     "ahmedabad": "-2090017",
+    "lucknow": "-2090956",
+    "varanasi": "-2091461",
+    "agra": "-2089860",
+    "amritsar": "-2089987",
     # Europe
     "paris": "-1456928",
     "london": "-2601889",
@@ -89,6 +93,61 @@ _CITY_TO_DEST_ID: dict[str, str] = {
     "nairobi": "-717992",
     "cairo": "-290691",
     "johannesburg": "-1217214",
+}
+
+# ── IATA code → canonical city name (for agents that pass IATA codes) ────
+_IATA_TO_CITY: dict[str, str] = {
+    # India
+    "bom": "mumbai", "del": "delhi", "blr": "bangalore",
+    "hyd": "hyderabad", "maa": "chennai", "ccu": "kolkata",
+    "pnq": "pune", "goi": "goa", "jai": "jaipur",
+    "cok": "kochi", "amd": "ahmedabad", "lko": "lucknow",
+    "vns": "varanasi", "agr": "agra", "atq": "amritsar",
+    # Europe
+    "cdg": "paris", "par": "paris", "lhr": "london", "lon": "london",
+    "fco": "rome", "rom": "rome", "ams": "amsterdam",
+    "bcn": "barcelona", "mad": "madrid", "ber": "berlin",
+    "mxp": "milan", "vie": "vienna", "prg": "prague",
+    "bud": "budapest", "lis": "lisbon", "ath": "athens",
+    # Middle East & Asia
+    "dxb": "dubai", "auh": "abu dhabi", "ist": "istanbul",
+    "sin": "singapore", "bkk": "bangkok",
+    "nrt": "tokyo", "hnd": "tokyo", "tyo": "tokyo",
+    "kix": "osaka", "osa": "osaka", "kul": "kuala lumpur",
+    "hkg": "hong kong", "pek": "beijing", "bjs": "beijing",
+    "pvg": "shanghai", "sha": "shanghai", "dps": "bali",
+    # Americas
+    "jfk": "new york", "nyc": "new york", "lga": "new york",
+    "lax": "los angeles", "sfo": "san francisco",
+    "mia": "miami", "ord": "chicago", "chi": "chicago",
+    "yyz": "toronto", "yto": "toronto", "mex": "mexico city",
+    # Oceania & Africa
+    "syd": "sydney", "mel": "melbourne",
+    "nbo": "nairobi", "nbi": "nairobi",
+    "cai": "cairo", "jnb": "johannesburg",
+}
+
+# ── City → country code (for Booking.com location parameter) ─────────────
+_CITY_TO_COUNTRY: dict[str, str] = {
+    "mumbai": "IN", "bombay": "IN", "delhi": "IN", "new delhi": "IN",
+    "bangalore": "IN", "bengaluru": "IN", "hyderabad": "IN",
+    "chennai": "IN", "kolkata": "IN", "pune": "IN", "goa": "IN",
+    "jaipur": "IN", "kochi": "IN", "ahmedabad": "IN",
+    "lucknow": "IN", "varanasi": "IN", "agra": "IN", "amritsar": "IN",
+    "paris": "FR", "london": "GB", "rome": "IT", "amsterdam": "NL",
+    "barcelona": "ES", "madrid": "ES", "berlin": "DE", "milan": "IT",
+    "vienna": "AT", "prague": "CZ", "budapest": "HU",
+    "lisbon": "PT", "athens": "GR",
+    "dubai": "AE", "abu dhabi": "AE", "istanbul": "TR",
+    "singapore": "SG", "bangkok": "TH",
+    "tokyo": "JP", "osaka": "JP", "kuala lumpur": "MY",
+    "hong kong": "HK", "beijing": "CN", "shanghai": "CN", "bali": "ID",
+    "new york": "US", "new york city": "US",
+    "los angeles": "US", "san francisco": "US",
+    "miami": "US", "chicago": "US",
+    "toronto": "CA", "mexico city": "MX",
+    "sydney": "AU", "melbourne": "AU",
+    "nairobi": "KE", "cairo": "EG", "johannesburg": "ZA",
 }
 
 
@@ -134,6 +193,7 @@ class BookingComClient:
         Resolve a city name to a Booking.com (dest_id, search_type) pair.
 
         Resolution order:
+        0. IATA code → canonical city name (agents often pass IATA codes).
         1. Hardcoded _CITY_TO_DEST_ID dict — zero API calls.
         2. In-process cache from previous API lookups.
         3. /api/v1/hotels/searchDestination API call.
@@ -141,6 +201,12 @@ class BookingComClient:
         Returns ("", "") if resolution fails completely.
         """
         lowered = city_name.strip().lower()
+
+        # 0. Translate IATA code to canonical city name
+        if lowered in _IATA_TO_CITY:
+            canonical = _IATA_TO_CITY[lowered]
+            logger.info(f"Resolved IATA '{city_name}' → city '{canonical}'")
+            lowered = canonical
 
         # 1. Static dict
         if lowered in _CITY_TO_DEST_ID:
@@ -202,6 +268,20 @@ class BookingComClient:
 
     # ── Hotel search ─────────────────────────────────────────────────────
 
+    def _resolve_country_code(self, city_name: str) -> str:
+        """Derive the country code for the Booking.com 'location' parameter."""
+        lowered = city_name.strip().lower()
+        # Try IATA → city → country
+        canonical = _IATA_TO_CITY.get(lowered, lowered)
+        country = _CITY_TO_COUNTRY.get(canonical)
+        if country:
+            return country
+        # Try substring match
+        for city, code in _CITY_TO_COUNTRY.items():
+            if city in lowered:
+                return code
+        return ""  # Omit location param if unknown — let Booking.com decide
+
     async def search_hotels(
         self,
         city_name: str,
@@ -217,7 +297,7 @@ class BookingComClient:
         Search hotels in a city for specific dates.
 
         Args:
-            city_name    : City name (resolved to dest_id internally).
+            city_name    : City name or IATA code (resolved to dest_id internally).
             arrival_date : Check-in date "YYYY-MM-DD".
             departure_date: Check-out date "YYYY-MM-DD".
             adults       : Number of adult guests.
@@ -240,8 +320,10 @@ class BookingComClient:
             logger.info(f"BookingCom: cache hit for {city_name} {arrival_date}→{departure_date}")
             return self._result_cache[cache_key][:max_results]
 
+        # Derive country code from city for accurate location targeting
+        country_code = self._resolve_country_code(city_name)
         logger.info(
-            f"BookingCom: searching hotels in '{city_name}' (dest_id={dest_id}) "
+            f"BookingCom: searching hotels in '{city_name}' (dest_id={dest_id}, country={country_code}) "
             f"{arrival_date}→{departure_date}, adults={adults}, currency={currency}"
         )
 
@@ -257,8 +339,9 @@ class BookingComClient:
             "temperature_unit": "c",
             "languagecode": "en-us",
             "currency_code": currency.upper(),
-            "location": "US",
         }
+        if country_code:
+            params["location"] = country_code
         if price_min > 0:
             params["price_min"] = str(price_min)
         if price_max > 0:

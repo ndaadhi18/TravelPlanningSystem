@@ -182,11 +182,31 @@ def _flight_to_live_item(flight: FlightOption | dict[str, Any]) -> dict[str, Any
 def _hotel_to_live_item(hotel: HotelOption | dict[str, Any]) -> dict[str, Any]:
     name = _get_field(hotel, "name") or "Hotel"
     address = _get_field(hotel, "address") or ""
+    city = _get_field(hotel, "city") or ""
     price_per_night = _get_field(hotel, "price_per_night") or 0
     total_price = _get_field(hotel, "total_price")
-    currency = _get_field(hotel, "currency") or "USD"
-    snippet = address or "Live hotel option"
-    price_hint = _format_price(total_price if total_price is not None else price_per_night, currency)
+    currency = _get_field(hotel, "currency") or "INR"
+    rating = _get_field(hotel, "rating") or 0
+    amenities = _get_field(hotel, "amenities") or []
+
+    # Build a rich snippet: address + rating + per-night price + amenities
+    snippet_parts: list[str] = []
+    display_address = address if address and address.lower() != name.lower() else city
+    if display_address:
+        snippet_parts.append(display_address)
+    if rating and float(rating) > 0:
+        snippet_parts.append(f"★ {float(rating):.1f}")
+    if price_per_night and float(price_per_night) > 0:
+        snippet_parts.append(f"{_format_price(price_per_night, currency)}/night")
+    if amenities and isinstance(amenities, list):
+        snippet_parts.append(" · ".join(amenities[:3]))
+
+    snippet = " · ".join(snippet_parts) if snippet_parts else "Hotel option"
+
+    # Show total price if available, else per-night; hide if 0
+    best_price = total_price if (total_price and float(total_price) > 0) else price_per_night
+    price_hint = _format_price(best_price, currency) if (best_price and float(best_price) > 0) else ""
+
     return {
         "category": "hotel",
         "title": name,
@@ -197,9 +217,26 @@ def _hotel_to_live_item(hotel: HotelOption | dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _sanitize_snippet(text: str) -> str:
+    """Strip residual HTML tags, WordPress shortcodes, and inline CSS from snippets."""
+    if not text:
+        return text
+    text = re.sub(r"\[/?[a-zA-Z_][a-zA-Z0-9_]*(?:\s[^\]]*)?]", " ", text)  # WP shortcodes
+    text = re.sub(r"\{[^}]*\}", " ", text)  # inline CSS blocks
+    text = re.sub(r"<[^>]+>", " ", text)    # HTML tags
+    text = re.sub(r"&[a-zA-Z]+;", " ", text)  # HTML entities
+    text = re.sub(r'[a-z_\\]+="[^"]*"', " ", text)  # CSS-like attrs
+    text = text.replace("\\_", "_")
+    text = re.sub(r"\s+", " ", text).strip()
+    # Truncate overly long snippets to keep UI clean
+    if len(text) > 300:
+        text = text[:297] + "…"
+    return text
+
+
 def _insight_to_live_item(insight: LocalInsight | dict[str, Any]) -> dict[str, Any]:
-    title = _get_field(insight, "name") or "Local insight"
-    description = _get_field(insight, "description") or ""
+    title = _sanitize_snippet(_get_field(insight, "name") or "Local insight")
+    description = _sanitize_snippet(_get_field(insight, "description") or "")
     category = _get_field(insight, "category")
     if hasattr(category, "value"):
         category = category.value
@@ -208,8 +245,8 @@ def _insight_to_live_item(insight: LocalInsight | dict[str, Any]) -> dict[str, A
         "category": category or "activity",
         "title": title,
         "url": _get_field(insight, "source_url") or "",
-        "snippet": description,
-        "price_hint": _format_price(estimated_cost, "USD") if estimated_cost is not None else "Check live site",
+        "snippet": description or "No description available.",
+        "price_hint": _format_price(estimated_cost, "INR") if estimated_cost is not None else "Check live site",
         "source": "Tavily local search",
     }
 
@@ -322,10 +359,11 @@ async def create_plan(input_data: TravelPlanInput):
         )
 
     budget_summary = getattr(itinerary, "budget_summary", None)
+    budget_currency = getattr(budget_summary, "currency", None) or "INR"
     budget_breakdown = BudgetBreakdown(
-        transport=f"{getattr(budget_summary, 'transport_cost', 0)} USD",
-        stay=f"{getattr(budget_summary, 'accommodation_cost', 0)} USD",
-        food=f"{getattr(budget_summary, 'food_estimate', 0)} USD",
+        transport=f"{getattr(budget_summary, 'transport_cost', 0)} {budget_currency}",
+        stay=f"{getattr(budget_summary, 'accommodation_cost', 0)} {budget_currency}",
+        food=f"{getattr(budget_summary, 'food_estimate', 0)} {budget_currency}",
     )
 
     return TravelPlanOutput(

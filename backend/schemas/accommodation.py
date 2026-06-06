@@ -47,9 +47,9 @@ class HotelSearchInput(BaseModel):
 
     city_code: str = Field(
         ...,
-        description="IATA city code for hotel search. e.g., 'PAR' for Paris.",
-        min_length=3,
-        max_length=3,
+        description="City name or IATA city code for hotel search. e.g., 'Delhi' or 'PAR'.",
+        min_length=2,
+        max_length=50,
     )
 
     check_in: str = Field(
@@ -93,11 +93,11 @@ class HotelSearchInput(BaseModel):
     @field_validator("city_code")
     @classmethod
     def validate_city_code(cls, v: str) -> str:
-        """City codes must be uppercase alphabetic."""
-        v = v.upper()
-        if not v.isalpha():
-            raise ValueError(f"City code '{v}' must contain only letters.")
-        return v
+        """City codes (IATA) are uppercased; full names are title-cased."""
+        v = v.strip()
+        if len(v) <= 3 and v.isalpha():
+            return v.upper()  # IATA code
+        return v  # Full city name — preserve as-is
 
     @field_validator("check_in", "check_out")
     @classmethod

@@ -188,16 +188,46 @@ def _normalize_results(raw_results: list[dict[str, Any]], max_results: int) -> l
     return insights
 
 
+def _sanitize_text(text: str) -> str:
+    """Strip HTML tags, WordPress/VC shortcodes, inline CSS, and excess whitespace."""
+    if not text:
+        return text
+    # Remove WordPress / Visual Composer shortcodes like [vc_row], [/vc_column_text], etc.
+    text = re.sub(r"\[/?[a-zA-Z_][a-zA-Z0-9_]*(?:\s[^\]]*)?\]", " ", text)
+    # Remove inline style blocks  { background-color: #f7f7f7 ... }
+    text = re.sub(r"\{[^}]*\}", " ", text)
+    # Remove CSS-like property fragments (e.g. back\_color="color-lxmt" overlay\_alpha="50")
+    text = re.sub(r'[a-z_\\]+="[^"]*"', " ", text)
+    # Remove HTML tags
+    text = re.sub(r"<[^>]+>", " ", text)
+    # Remove HTML entities
+    text = re.sub(r"&[a-zA-Z]+;", " ", text)
+    text = re.sub(r"&#?\w+;", " ", text)
+    # Remove escaped underscores from markdown-style content (e.g. full\_width)
+    text = text.replace("\\_", "_")
+    # Remove leftover CSS-like fragments: property_name="value"
+    text = re.sub(r'\b\w+_\w+="[^"]*"', " ", text)
+    # Collapse runs of whitespace / newlines into a single space
+    text = re.sub(r"\s+", " ", text).strip()
+    # Drop the entire string if it's mostly non-readable noise (< 30% alpha chars)
+    alpha_count = sum(1 for c in text if c.isalpha())
+    if len(text) > 20 and alpha_count / max(len(text), 1) < 0.3:
+        return ""
+    return text
+
+
 def _build_local_insight(raw: Any) -> Optional[LocalInsight]:
     """Convert a single provider item into LocalInsight."""
     if not isinstance(raw, dict):
         logger.warning(f"Skipping malformed search result type: {type(raw).__name__}")
         return None
 
-    title = str(raw.get("title") or raw.get("name") or "").strip()
-    description = str(
-        raw.get("content") or raw.get("snippet") or raw.get("description") or ""
-    ).strip()
+    title = _sanitize_text(
+        str(raw.get("title") or raw.get("name") or "").strip()
+    )
+    description = _sanitize_text(
+        str(raw.get("content") or raw.get("snippet") or raw.get("description") or "").strip()
+    )
     source_url = str(raw.get("url") or raw.get("source_url") or raw.get("link") or "").strip()
 
     if not title and source_url:

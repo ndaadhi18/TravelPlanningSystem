@@ -19,11 +19,11 @@ from backend.utils.logger import get_logger
 
 logger = get_logger("mcp.tools.search_hotels")
 
-# PriceRange → (price_min, price_max) in USD per night
+# PriceRange → (price_min, price_max) in INR per night
 _PRICE_RANGE_FILTERS: dict[PriceRange, tuple[int, int]] = {
-    PriceRange.BUDGET: (0, 100),
-    PriceRange.MID: (100, 300),
-    PriceRange.LUXURY: (300, 0),  # 0 max = no upper bound
+    PriceRange.BUDGET: (0, 5_000),
+    PriceRange.MID: (5_000, 15_000),
+    PriceRange.LUXURY: (15_000, 0),  # 0 max = no upper bound
 }
 
 
@@ -275,11 +275,11 @@ def _price_filters(price_range: PriceRange | None) -> tuple[int, int]:
 
 def _in_price_range(price_per_night: float, range_type: PriceRange) -> bool:
     if range_type == PriceRange.BUDGET:
-        return price_per_night < 100
+        return price_per_night < 5_000
     if range_type == PriceRange.MID:
-        return 100 <= price_per_night <= 300
+        return 5_000 <= price_per_night <= 15_000
     if range_type == PriceRange.LUXURY:
-        return price_per_night > 300
+        return price_per_night > 15_000
     return True
 
 

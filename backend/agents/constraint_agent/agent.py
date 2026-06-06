@@ -171,43 +171,62 @@ class ConstraintAgent(BaseAgent):
             price_str = f" (~₹{h.price_per_night:.0f}/night)" if h.price_per_night else ""
             hotel_ctx = f"Hotel: {h.name}{price_str}"
 
-        # Use ONLY insight names as inspiration — never dump raw article body
+        # Strip SEO/listicle patterns before passing to LLM so it cannot copy them
+        def _clean_insight(name: str) -> str:
+            cleaned = re.sub(r"\b(Top|Best|\d+)\s+", "", name, flags=re.IGNORECASE)
+            cleaned = re.sub(r"Things?\s+to\s+[Dd]o\s+(in\s+)?", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s+in\s+20\d\d\b", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s*[-|\u2013]\s*[\w\s]+$", "", cleaned)
+            cleaned = re.sub(r"\bWhy Visit\b.*", "", cleaned, flags=re.IGNORECASE)
+            return cleaned.strip() or name[:50]
+
         insight_ctx = "\n".join(
-            f"- {getattr(i, 'name', '')[:70]}"
-            for i in insights[:8]
-        ) or "Popular local attractions and cuisine"
+            f"  \u00b7 {_clean_insight(getattr(i, 'name', ''))}"
+            for i in insights[:6]
+        ) or "  \u00b7 Local sightseeing, cuisine, and cultural experiences"
 
         system = (
-            "You are an expert travel planner. Create realistic, well-paced itineraries. "
-            "Think like a seasoned traveler: Day 1 starts with arrival logistics and light exploration. "
-            "Last day ends with checkout and departure. Middle days have rich morning/afternoon/evening activities. "
-            "Be specific, vivid, and concise. Never copy article headlines verbatim."
+            "You are a professional travel writer creating day-by-day itinerary content for a travel app. "
+            "Write vivid, specific, locally-grounded activity descriptions like a knowledgeable local friend.\n\n"
+            "HARD RULES (violations break the app):\n"
+            "\u2022 NEVER write article titles, blog headlines, or anything that sounds like a listicle heading.\n"
+            "\u2022 NEVER write phrases like 'Things to Do in X', 'Best X in Y', 'Why Visit X', 'Top N ...'.\n"
+            "\u2022 ALWAYS name specific real places: neighbourhoods, restaurants, markets, temples, streets.\n"
+            "\u2022 ALWAYS write as a concrete action the traveller performs, not a topic to research.\n\n"
+            "GOOD examples:\n"
+            "  Morning: Walk through Dharavi's leather-craft lanes at 8 am before the heat sets in.\n"
+            "  Afternoon: Lunch at Mahesh Lunch Home in Fort \u2014 order the Mangalorean crab masala.\n"
+            "  Evening: Catch sunset from Bandra Fort; the sea shimmers below.\n\n"
+            "BAD examples (never write like this):\n"
+            "  Afternoon: Things to Do in Mumbai in 2026\n"
+            "  Evening: 25 Cool and Unusual Things to Do in Mumbai - Atlas Obscura\n"
+            "  Morning: Why Visit Mumbai? List of 9 Things"
         )
 
-        user = f"""Plan a {trip_days}-day trip to {destination} for {travelers} person(s).
+        user = f"""Plan a {trip_days}-day trip to {destination} for {travelers} traveller(s).
 
-Trip details:
+Context:
 - Start date: {start_date}
-- Style: {intent.travel_style.value if intent.travel_style else 'flexible'}
+- Travel style: {intent.travel_style.value if intent.travel_style else 'flexible'}
 - Preferences: {intent.preferences or 'general sightseeing and local cuisine'}
 - {flight_ctx}
 - {hotel_ctx}
 
-Local themes to weave in (rewrite in your own words — do not copy these titles):
+Local inspiration (themes only — write original sentences with REAL place names, not these words):
 {insight_ctx}
 
-Output ONLY valid JSON (no markdown fences, no extra text):
+Output ONLY valid JSON — no markdown fences, no extra text:
 {{
-  "highlights": ["3 vivid trip highlights as short strings"],
+  "highlights": ["3 punchy trip highlights, e.g. 'Gateway of India at sunrise'"],
   "days": [
     {{
       "day": 1,
       "title": "Arrival & First Impressions",
       "activities": [
-        "Morning: Land, clear customs, and take a cab to the hotel — check in and freshen up.",
-        "Afternoon: Short stroll around the hotel neighbourhood to get your bearings.",
-        "Evening: Head to a popular local street-food area for dinner.",
-        "Night: Return to hotel and rest."
+        "Morning: Clear customs and take a prepaid cab to the hotel — check in and freshen up.",
+        "Afternoon: Short stroll around the hotel neighbourhood; pick up a local snack.",
+        "Evening: Dinner at a neighbourhood favourite — ask staff for their recommendation.",
+        "Night: Early rest before a packed day tomorrow."
       ]
     }}
   ]
@@ -215,10 +234,10 @@ Output ONLY valid JSON (no markdown fences, no extra text):
 
 Rules:
 - Generate exactly {trip_days} day objects.
-- Each day must have 3–5 activities prefixed with Morning/Afternoon/Evening/Night + colon.
-- Each activity: max 25 words, vivid and specific. No marketing language.
-- Day 1 MUST start with flight arrival + hotel check-in.
-- Last day MUST end with hotel checkout + departure to airport."""
+- Each day: 3–5 activities, each prefixed Morning / Afternoon / Evening / Night + colon.
+- Each activity: 12–22 words, vivid and specific. Real place names wherever possible.
+- Day 1 MUST open with flight arrival + hotel check-in.
+- Last day MUST close with hotel checkout + journey to airport."""
 
         result = self._llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
         raw = getattr(result, "content", str(result))
@@ -260,7 +279,7 @@ Rules:
                 activities=day_activities,
                 transport=flight if idx == 0 else None,
                 hotel=hotel,
-                estimated_day_cost=round(hotel_cost + 45.0 * travelers, 2),
+                estimated_day_cost=round(hotel_cost + 750.0 * travelers, 2),
             ))
 
         return day_plans, highlights
@@ -399,7 +418,7 @@ def _build_deterministic_day_plans(
             activities=day_activities,
             transport=flight if day_idx == 0 else None,
             hotel=hotel,
-            estimated_day_cost=round(hotel_cost + 45.0 * travelers, 2),
+            estimated_day_cost=round(hotel_cost + 750.0 * travelers, 2),
         ))
 
     return plans
@@ -418,14 +437,31 @@ def _compute_budget_summary(
     accommodation_cost = 0.0
     if hotels:
         primary = hotels[0]
-        if primary.total_price is not None:
+        if primary.total_price and primary.total_price > 0:
             accommodation_cost = primary.total_price
-        else:
+        elif primary.price_per_night and primary.price_per_night > 0:
             accommodation_cost = primary.price_per_night * max(1, nights)
 
+    # Estimate accommodation if still 0 — use budget tier heuristics
+    if accommodation_cost <= 0:
+        currency = (
+            intent.currency
+            or (flights[0].currency if flights else None)
+            or (hotels[0].currency if hotels else "INR")
+        )
+        from backend.schemas.travel_intent import TravelStyle
+        _NIGHTLY_ESTIMATES: dict[str, dict[str, float]] = {
+            "INR": {"budget": 1800.0, "mid-range": 5500.0, "luxury": 15000.0, "default": 4000.0},
+            "USD": {"budget": 50.0, "mid-range": 130.0, "luxury": 350.0, "default": 100.0},
+        }
+        tier_map = _NIGHTLY_ESTIMATES.get(currency.upper(), _NIGHTLY_ESTIMATES["USD"])
+        style_key = intent.travel_style.value if intent.travel_style else "default"
+        ppn = tier_map.get(style_key, tier_map["default"])
+        accommodation_cost = ppn * max(1, nights)
+
     activities_cost = sum(item.estimated_cost or 0.0 for item in insights)
-    food_estimate = 30.0 * max(1, intent.num_travelers) * max(1, nights)
-    miscellaneous = 15.0 * max(1, intent.num_travelers) * max(1, nights)
+    food_estimate = 500.0 * max(1, intent.num_travelers) * max(1, nights)   # ₹500/person/night
+    miscellaneous = 250.0 * max(1, intent.num_travelers) * max(1, nights)   # ₹250/person/night
     total = transport_cost + accommodation_cost + activities_cost + food_estimate + miscellaneous
 
     currency = (

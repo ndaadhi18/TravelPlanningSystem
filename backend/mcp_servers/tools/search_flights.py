@@ -17,13 +17,14 @@ from backend.utils.logger import get_logger
 
 logger = get_logger("mcp.tools.search_flights")
 
-# Duration buckets → estimated one-way economy price in USD.
+# Duration buckets → estimated one-way economy price in INR.
 # Thresholds are upper bounds in hours.
+# Reflects realistic Indian market fares (domestic + international).
 _PRICE_TIERS: list[tuple[float, float]] = [
-    (2.0,  120.0),          # short haul  < 2 h  → $120
-    (5.0,  380.0),          # medium haul < 5 h  → $380
-    (10.0, 680.0),          # long haul   < 10 h → $680
-    (float("inf"), 1050.0), # ultra long  ≥ 10 h → $1050
+    (2.0,   5_500.0),          # short haul  < 2 h  → ₹5,500  (e.g. Mumbai–Delhi)
+    (5.0,  18_000.0),          # medium haul < 5 h  → ₹18,000 (e.g. India–SE Asia)
+    (10.0, 55_000.0),          # long haul   < 10 h → ₹55,000 (e.g. India–Europe)
+    (float("inf"), 90_000.0),  # ultra long  ≥ 10 h → ₹90,000
 ]
 
 

@@ -102,8 +102,8 @@ class TravelIntent(BaseModel):
     )
 
     currency: str = Field(
-        default="USD",
-        description="Budget currency code (ISO 4217). e.g., 'USD', 'EUR', 'INR'",
+        default="INR",
+        description="Budget currency code (ISO 4217). e.g., 'INR', 'USD', 'EUR'",
         min_length=3,
         max_length=3,
     )
